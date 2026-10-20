@@ -1,0 +1,7 @@
+**/bin
+**/obj
+.git
+.appdata
+.env
+TestResults
+*.docx

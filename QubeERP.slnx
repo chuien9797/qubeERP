@@ -1,0 +1,14 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Shared.Contracts/Shared.Contracts.csproj" />
+    <Project Path="src/ProductService/ProductService.csproj" />
+    <Project Path="src/InventoryService/InventoryService.csproj" />
+    <Project Path="src/OrderService/OrderService.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/ProductService.Tests/ProductService.Tests.csproj" />
+    <Project Path="tests/InventoryService.Tests/InventoryService.Tests.csproj" />
+    <Project Path="tests/OrderService.Tests/OrderService.Tests.csproj" />
+    <Project Path="tests/QubeERP.IntegrationTests/QubeERP.IntegrationTests.csproj" />
+  </Folder>
+</Solution>

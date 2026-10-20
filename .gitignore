@@ -1,0 +1,8 @@
+**/bin/
+**/obj/
+.appdata/
+.env
+TestResults/
+.vs/
+.idea/
+*.user
