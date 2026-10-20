@@ -1,5 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.Mvc;
+using ProductService.Application;
+using ProductService.OpenApi;
 using ProductService.Data;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -10,10 +13,37 @@ builder.Services.AddDbContext<ProductServiceContext>((services, options) =>
     options.UseSqlServer(connectionString, sql => sql.EnableRetryOnFailure(5));
 });
 builder.Services.AddHealthChecks().AddCheck<DatabaseHealthCheck>("database", timeout: TimeSpan.FromSeconds(5));
-builder.Services.AddControllers();
+builder.Services.AddScoped<CatalogueService>();
+builder.Services.AddControllers().ConfigureApiBehaviorOptions(options =>
+{
+    options.InvalidModelStateResponseFactory = context =>
+    {
+        var problem = new ValidationProblemDetails(context.ModelState)
+        {
+            Status = StatusCodes.Status400BadRequest,
+            Title = "Request validation failed."
+        };
+        problem.Extensions["errorCode"] = "INVALID_REQUEST";
+        problem.Extensions["traceId"] = context.HttpContext.TraceIdentifier;
+        var response = new BadRequestObjectResult(problem);
+        response.ContentTypes.Add("application/problem+json");
+        return response;
+    };
+});
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
-builder.Services.AddProblemDetails();
+builder.Services.AddSwaggerGen(options => options.SchemaFilter<ProductExamples>());
+builder.Services.AddProblemDetails(options => options.CustomizeProblemDetails = context =>
+{
+    context.ProblemDetails.Extensions.TryAdd("traceId", context.HttpContext.TraceIdentifier);
+    context.ProblemDetails.Extensions.TryAdd("errorCode", context.ProblemDetails.Status switch
+    {
+        404 => "NOT_FOUND",
+        413 => "REQUEST_TOO_LARGE",
+        415 => "UNSUPPORTED_MEDIA_TYPE",
+        >= 500 => "INTERNAL_ERROR",
+        _ => "INVALID_REQUEST"
+    });
+});
 
 var app = builder.Build();
 app.UseExceptionHandler();

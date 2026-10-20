@@ -1,0 +1,57 @@
+using Microsoft.Data.SqlClient;
+using Microsoft.EntityFrameworkCore;
+using ProductService.Data;
+using ProductService.Domain;
+using Shared.Contracts.Products;
+
+namespace ProductService.Application;
+
+public sealed class CatalogueService(ProductServiceContext database)
+{
+    public async Task<ProductResponse?> CreateAsync(CreateProductRequest request, CancellationToken cancellationToken)
+    {
+        var product = new Product
+        {
+            Sku = request.Sku!.Trim().ToUpperInvariant(),
+            Name = request.Name!.Trim(),
+            Description = request.Description,
+            UnitPrice = request.UnitPrice!.Value
+        };
+        database.Products.Add(product);
+        try
+        {
+            await database.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException exception) when (exception.InnerException is SqlException sql
+            && sql.Number is 2601 or 2627 && sql.Message.Contains("IX_Products_Sku", StringComparison.Ordinal))
+        {
+            return null;
+        }
+        return ToResponse(product);
+    }
+
+    public async Task<ProductResponse?> GetAsync(Guid id, CancellationToken cancellationToken)
+    {
+        var product = await database.Products.AsNoTracking().SingleOrDefaultAsync(value => value.Id == id, cancellationToken);
+        return product is null ? null : ToResponse(product);
+    }
+
+    public async Task<IReadOnlyList<ProductResponse>> ListAsync(int offset, int limit, CancellationToken cancellationToken)
+    {
+        var products = await database.Products.AsNoTracking().OrderBy(value => value.CreatedAtUtc)
+            .ThenBy(value => value.Id).Skip(offset).Take(limit).ToListAsync(cancellationToken);
+        return products.Select(ToResponse).ToArray();
+    }
+
+    public async Task<ProductLookupResponse> LookupAsync(Guid[] ids, CancellationToken cancellationToken)
+    {
+        var products = await database.Products.AsNoTracking().Where(value => ids.Contains(value.Id))
+            .ToDictionaryAsync(value => value.Id, cancellationToken);
+        return new ProductLookupResponse(
+            ids.Where(products.ContainsKey).Select(id => ToResponse(products[id])).ToArray(),
+            ids.Where(id => !products.ContainsKey(id)).ToArray());
+    }
+
+    private static ProductResponse ToResponse(Product product) => new(product.Id, product.Sku, product.Name,
+        product.Description, product.UnitPrice, product.IsActive, product.CreatedAtUtc, product.UpdatedAtUtc);
+}
