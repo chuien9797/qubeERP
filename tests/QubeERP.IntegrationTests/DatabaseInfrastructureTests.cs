@@ -17,15 +17,15 @@ public sealed class DatabaseInfrastructureTests
         await using var sql = new MsSqlBuilder("mcr.microsoft.com/mssql/server:2022-latest")
             .Build();
         await sql.StartAsync();
-        await VerifyDatabase<ProductServiceContext>(sql.GetConnectionString(), "ProductDb",
+        await VerifyDatabase<ProductServiceContext>(sql.GetConnectionString(), "ProductDb", 2, 1,
             options => new ProductServiceContext(options));
-        await VerifyDatabase<InventoryServiceContext>(sql.GetConnectionString(), "InventoryDb",
+        await VerifyDatabase<InventoryServiceContext>(sql.GetConnectionString(), "InventoryDb", 1, 0,
             options => new InventoryServiceContext(options));
-        await VerifyDatabase<OrderServiceContext>(sql.GetConnectionString(), "OrderDb",
+        await VerifyDatabase<OrderServiceContext>(sql.GetConnectionString(), "OrderDb", 1, 0,
             options => new OrderServiceContext(options));
     }
 
-    private static async Task VerifyDatabase<TContext>(string connectionString, string databaseName,
+    private static async Task VerifyDatabase<TContext>(string connectionString, string databaseName, int migrationCount, int entityCount,
         Func<DbContextOptions<TContext>, TContext> createContext) where TContext : DbContext
     {
         var connection = new SqlConnectionStringBuilder(connectionString) { InitialCatalog = databaseName };
@@ -35,8 +35,8 @@ public sealed class DatabaseInfrastructureTests
         await context.Database.MigrateAsync();
         await context.Database.MigrateAsync();
         Assert.True(await context.Database.CanConnectAsync());
-        Assert.Single(await context.Database.GetAppliedMigrationsAsync());
+        Assert.Equal(migrationCount, (await context.Database.GetAppliedMigrationsAsync()).Count());
         Assert.Empty(await context.Database.GetPendingMigrationsAsync());
-        Assert.Empty(context.Model.GetEntityTypes());
+        Assert.Equal(entityCount, context.Model.GetEntityTypes().Count());
     }
 }
