@@ -10,8 +10,9 @@ namespace InventoryService.Controllers;
 public sealed class ReservationsController(ReservationService reservations) : ControllerBase
 {
     [HttpPost]
-    [EndpointSummary("Reserve every requested item in one transaction.")]
+    [EndpointSummary("Reserve every requested item or persist a terminal stock rejection.")]
     [ProducesResponseType<ReservationResponse>(StatusCodes.Status201Created)]
+    [ProducesResponseType<ReservationResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status413PayloadTooLarge)]
@@ -23,9 +24,21 @@ public sealed class ReservationsController(ReservationService reservations) : Co
         switch (result.Outcome)
         {
             case ReservationOutcome.Reserved:
+                if (result.IsReplay)
+                {
+                    return Ok(result.Reservation);
+                }
+
                 return CreatedAtAction(nameof(Get), new { reservationId = id }, result.Reservation);
             case ReservationOutcome.Rejected:
+                if (!result.IsReplay)
+                {
+                    Response.Headers.Location = Url.Action(nameof(Get), new { reservationId = id });
+                }
+
                 return ReservationProblem(409, "Insufficient stock.", "INSUFFICIENT_STOCK", id, result.Reservation!.Shortfalls);
+            case ReservationOutcome.PayloadConflict:
+                return ReservationProblem(409, "Reservation ID was already used with different items.", "RESERVATION_PAYLOAD_CONFLICT", id);
             case ReservationOutcome.Unavailable:
                 return ReservationProblem(503, "Reservation could not be completed. Retry with the same ID.", "RESERVATION_UNAVAILABLE", id);
             default:

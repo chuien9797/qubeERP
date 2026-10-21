@@ -1,4 +1,5 @@
 using System.Data;
+using System.Text.Json;
 using InventoryService.Data;
 using InventoryService.Domain;
 using Microsoft.Data.SqlClient;
@@ -10,6 +11,7 @@ namespace InventoryService.Application;
 
 public sealed class ReservationService
 {
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private readonly DbContextOptions<InventoryServiceContext> transactionOptions;
     private readonly ILogger<ReservationService> logger;
 
@@ -32,11 +34,29 @@ public sealed class ReservationService
         var id = request.ReservationId!.Value;
         var items = request.Items!.OrderBy(item => item.ProductId.ToString("D"), StringComparer.Ordinal).ToArray();
         var fingerprint = ReservationFingerprint.Create(items);
+        var existing = await FindAsync(id, cancellationToken);
+        if (existing is not null)
+        {
+            return Replay(existing, fingerprint);
+        }
+
         for (var attempt = 0; attempt <= 2; attempt++)
         {
             try
             {
                 return await ReserveInTransactionAsync(id, items, fingerprint, cancellationToken);
+            }
+            catch (DbUpdateException exception) when (exception.InnerException is SqlException sql
+                && sql.Number is 2601 or 2627 && sql.Message.Contains("PK_Reservations", StringComparison.Ordinal))
+            {
+                existing = await FindAsync(id, cancellationToken);
+                if (existing is not null)
+                {
+                    return Replay(existing, fingerprint);
+                }
+
+                logger.LogError("Reservation {ReservationId} disappeared after its primary-key conflict", id);
+                return new ReservationResult(ReservationOutcome.Unavailable);
             }
             catch (Exception exception) when (IsDeadlock(exception))
             {
@@ -92,8 +112,9 @@ public sealed class ReservationService
 
         if (shortfalls.Count > 0)
         {
-            return new ReservationResult(ReservationOutcome.Rejected,
-                new ReservationResponse(id, "Rejected", "INSUFFICIENT_STOCK", shortfalls));
+            reservation.Status = "Rejected";
+            reservation.FailureCode = "INSUFFICIENT_STOCK";
+            reservation.FailureDetailsJson = JsonSerializer.Serialize(shortfalls, JsonOptions);
         }
         else
         {
@@ -130,6 +151,18 @@ public sealed class ReservationService
         return await database.Reservations.AsNoTracking().SingleOrDefaultAsync(item => item.Id == id, cancellationToken);
     }
 
+    private static ReservationResult Replay(Reservation reservation, string fingerprint)
+    {
+        if (!string.Equals(reservation.RequestFingerprint, fingerprint, StringComparison.Ordinal))
+        {
+            return new ReservationResult(ReservationOutcome.PayloadConflict);
+        }
+
+        var response = ToResponse(reservation);
+        var outcome = response.Status == "Reserved" ? ReservationOutcome.Reserved : ReservationOutcome.Rejected;
+        return new ReservationResult(outcome, response, IsReplay: true);
+    }
+
     private static ReservationResponse ToResponse(Reservation reservation)
     {
         if (reservation.Status is not ("Reserved" or "Rejected"))
@@ -137,7 +170,11 @@ public sealed class ReservationService
             throw new InvalidOperationException("A committed reservation must have a terminal outcome.");
         }
 
-        return new ReservationResponse(reservation.Id, reservation.Status, null, []);
+        var shortfalls = reservation.Status == "Rejected"
+            ? JsonSerializer.Deserialize<StockShortfall[]>(reservation.FailureDetailsJson!, JsonOptions)
+                ?? throw new InvalidOperationException("Rejected reservation details are missing.")
+            : [];
+        return new ReservationResponse(reservation.Id, reservation.Status, reservation.FailureCode, shortfalls);
     }
 
     private static bool IsDeadlock(Exception exception)
