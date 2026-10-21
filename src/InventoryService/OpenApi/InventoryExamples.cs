@@ -13,5 +13,10 @@ public sealed class InventoryExamples : ISchemaFilter
         {
             stockSchema.Example = JsonNode.Parse("""{"onHand":10,"reason":"Initial stocktake"}""");
         }
+
+        if (context.Type == typeof(CreateReservationRequest) && schema is OpenApiSchema reservationSchema)
+        {
+            reservationSchema.Example = JsonNode.Parse("""{"reservationId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","items":[{"productId":"11111111-1111-1111-1111-111111111111","quantity":3},{"productId":"22222222-2222-2222-2222-222222222222","quantity":2}]}""");
+        }
     }
 }

@@ -15,6 +15,7 @@ builder.Services.AddDbContextFactory<InventoryServiceContext>((services, options
 });
 builder.Services.AddHealthChecks().AddCheck<DatabaseHealthCheck>("database", timeout: TimeSpan.FromSeconds(5));
 builder.Services.AddScoped<StockService>();
+builder.Services.AddScoped<ReservationService>();
 builder.Services.AddHttpClient<IProductClient, ProductClient>(client =>
 {
     client.BaseAddress = new Uri(builder.Configuration["Services:Product"] ?? "http://localhost:5101");
@@ -29,7 +30,9 @@ builder.Services.AddControllers().ConfigureApiBehaviorOptions(options =>
             Status = StatusCodes.Status400BadRequest,
             Title = "Request validation failed."
         };
-        problem.Extensions["errorCode"] = "INVALID_REQUEST";
+        problem.Extensions["errorCode"] = context.HttpContext.Request.Path.StartsWithSegments("/api/inventory/reservations")
+            ? "INVALID_RESERVATION"
+            : "INVALID_REQUEST";
         problem.Extensions["traceId"] = context.HttpContext.TraceIdentifier;
         var response = new BadRequestObjectResult(problem);
         response.ContentTypes.Add("application/problem+json");
@@ -52,7 +55,12 @@ builder.Services.AddProblemDetails(options => options.CustomizeProblemDetails = 
 });
 
 var app = builder.Build();
-app.UseExceptionHandler();
+app.UseExceptionHandler(new ExceptionHandlerOptions
+{
+    StatusCodeSelector = exception => exception is BadHttpRequestException badRequest
+        ? badRequest.StatusCode
+        : StatusCodes.Status500InternalServerError
+});
 app.UseStatusCodePages();
 if (app.Environment.IsDevelopment())
 {
