@@ -13,6 +13,7 @@ public sealed class OrdersController(OrderApplicationService orders) : Controlle
     [HttpPost]
     [EndpointSummary("Create an order with saved product prices and an atomic stock reservation.")]
     [ProducesResponseType<OrderResponse>(201)]
+    [ProducesResponseType<OrderResponse>(200)]
     [ProducesResponseType<PendingOrderResponse>(202)]
     [ProducesResponseType<ProblemDetails>(400)]
     [ProducesResponseType<ProblemDetails>(409)]
@@ -38,6 +39,7 @@ public sealed class OrdersController(OrderApplicationService orders) : Controlle
                 "PRODUCT_UNAVAILABLE" => OrderProblem(503, "Product lookup is unavailable.", result.ErrorCode),
                 "INVALID_PRODUCT" => OrderProblem(422, "Some products are missing or inactive.", result.ErrorCode, invalidIds: result.InvalidProductIds),
                 "ORDER_TOTAL_OUT_OF_RANGE" => OrderProblem(422, "Order amounts exceed the supported decimal range.", result.ErrorCode),
+                "IDEMPOTENCY_KEY_CONFLICT" => OrderProblem(409, "This key was already used for different items.", result.ErrorCode, result.Order),
                 _ => throw new InvalidOperationException("Unexpected order validation result.")
             };
         }
@@ -52,6 +54,7 @@ public sealed class OrdersController(OrderApplicationService orders) : Controlle
         return order.Status switch
         {
             "Confirmed" when result.IsNew => CreatedAtAction(nameof(Get), new { id = order.OrderId }, order),
+            "Confirmed" => Ok(order),
             "Pending" => Accepted(statusUrl, new PendingOrderResponse(order.OrderId, order.Status, statusUrl)),
             "Rejected" when order.FailureCode == "INSUFFICIENT_STOCK" =>
                 OrderProblem(409, "Insufficient stock.", order.FailureCode, order),

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using OrderService.Clients;
 using OrderService.Data;
@@ -26,6 +27,12 @@ public sealed class OrderApplicationService(
     public async Task<OrderResult> CreateAsync(string key, CreateOrderRequest request, CancellationToken cancellationToken)
     {
         var fingerprint = OrderFingerprint.Create(request.Items!);
+        var existing = await FindByKeyAsync(key, cancellationToken);
+        if (existing is not null)
+        {
+            return Replay(existing, fingerprint);
+        }
+
         var lookup = await products.LookupAsync(request.Items!.Select(item => item.ProductId).ToArray(), cancellationToken);
         if (lookup is null)
         {
@@ -65,7 +72,17 @@ public sealed class OrderApplicationService(
             Id = id, IdempotencyKey = key, RequestFingerprint = fingerprint,
             TotalAmount = total, Lines = lines
         };
-        await SavePendingAsync(order, cancellationToken);
+        try
+        {
+            await SavePendingAsync(order, cancellationToken);
+        }
+        catch (DbUpdateException exception) when (exception.InnerException is SqlException sql
+            && sql.Number is 2601 or 2627 && sql.Message.Contains("IX_Orders_IdempotencyKey", StringComparison.Ordinal))
+        {
+            existing = await FindByKeyAsync(key, cancellationToken)
+                ?? throw new InvalidOperationException("The winning order could not be loaded.", exception);
+            return Replay(existing, fingerprint);
+        }
 
         await RecordAttemptAsync(order.Id, cancellationToken);
         var result = await inventory.ReserveAsync(new CreateReservationRequest
@@ -87,6 +104,13 @@ public sealed class OrderApplicationService(
         await using var database = await contexts.CreateDbContextAsync(cancellationToken);
         database.Orders.Add(order);
         await database.SaveChangesAsync(cancellationToken);
+    }
+
+    private async Task<Order?> FindByKeyAsync(string key, CancellationToken cancellationToken)
+    {
+        await using var database = await contexts.CreateDbContextAsync(cancellationToken);
+        return await database.Orders.AsNoTracking().Include(value => value.Lines)
+            .SingleOrDefaultAsync(value => value.IdempotencyKey == key, cancellationToken);
     }
 
     private async Task RecordAttemptAsync(Guid id, CancellationToken cancellationToken)
@@ -126,6 +150,11 @@ public sealed class OrderApplicationService(
                 .SetProperty(value => value.FailureCode, code).SetProperty(value => value.FailureDetailsJson, details)
                 .SetProperty(value => value.UpdatedAtUtc, now), cancellationToken);
     }
+
+    private static OrderResult Replay(Order order, string fingerprint) =>
+        string.Equals(order.RequestFingerprint, fingerprint, StringComparison.Ordinal)
+            ? new OrderResult(ToResponse(order))
+            : new OrderResult(ToResponse(order), ErrorCode: "IDEMPOTENCY_KEY_CONFLICT");
 
     private static OrderResponse ToResponse(Order order) => new(order.Id, order.Status, order.TotalAmount,
         order.Lines.OrderBy(line => line.ProductId.ToString("D"), StringComparer.Ordinal).Select(line =>

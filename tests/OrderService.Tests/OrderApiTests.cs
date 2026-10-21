@@ -52,6 +52,118 @@ public sealed class OrderApiTests(OrderApiFixture fixture) : IClassFixture<Order
     }
 
     [Fact]
+    public async Task T07_SimultaneousSameKeyCreatesOneOrderAndUsesOnlyWinningId()
+    {
+        var product = Dependencies.AddProduct();
+        var key = NewKey();
+        var arrivals = 0;
+        var bothLookingUp = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Dependencies.ProductResponse = async (request, token) =>
+        {
+            if (Interlocked.Increment(ref arrivals) == 2) bothLookingUp.TrySetResult();
+            await bothLookingUp.Task.WaitAsync(TimeSpan.FromSeconds(15), token);
+            return await Dependencies.LookupAsync(request, token);
+        };
+        var callsBefore = Dependencies.InventoryCalls;
+        try
+        {
+            var responses = await Task.WhenAll(fixture.PostAsync(key, Item(product, 3)), fixture.PostAsync(key, Item(product, 3)));
+            try
+            {
+                Assert.Single(responses, response => response.StatusCode == HttpStatusCode.Created);
+                Assert.All(responses, response => Assert.Contains(response.StatusCode,
+                    new[] { HttpStatusCode.Created, HttpStatusCode.OK, HttpStatusCode.Accepted }));
+                var ids = new List<Guid>();
+                foreach (var response in responses)
+                {
+                    using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+                    ids.Add(json.RootElement.GetProperty("orderId").GetGuid());
+                }
+                Assert.Single(ids.Distinct());
+                await using var database = fixture.CreateContext();
+                var saved = Assert.Single(await database.Orders.Include(order => order.Lines).Where(order => order.IdempotencyKey == key).ToListAsync());
+                Assert.Equal(ids[0], saved.Id);
+                Assert.Equal("Confirmed", saved.Status);
+                Assert.Single(saved.Lines);
+                Assert.Equal(callsBefore + 1, Dependencies.InventoryCalls);
+                Assert.Single(Dependencies.Reservations, request => request.ReservationId == saved.Id);
+            }
+            finally { foreach (var response in responses) response.Dispose(); }
+        }
+        finally { Dependencies.ProductResponse = null; }
+    }
+
+    [Fact]
+    public async Task ConfirmedReplayKeepsOriginalPricesAndDoesNotCallDependencies()
+    {
+        var first = Dependencies.AddProduct(3.33m);
+        var second = Dependencies.AddProduct(4m);
+        var key = NewKey();
+        using var created = await fixture.PostAsync(key, Item(first, 3), Item(second, 2));
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var original = (await created.Content.ReadFromJsonAsync<OrderResponse>())!;
+        Dependencies.Products[first] = Dependencies.Products[first] with { UnitPrice = 999m, Name = "Changed", IsActive = false };
+        Dependencies.ProductResponse = (_, _) => throw new HttpRequestException("Product unavailable");
+        var productCalls = Dependencies.ProductCalls;
+        var inventoryCalls = Dependencies.InventoryCalls;
+        try
+        {
+            using var replay = await fixture.PostAsync(key, Item(second, 2), Item(first, 3));
+            Assert.Equal(HttpStatusCode.OK, replay.StatusCode);
+            Assert.Equal(await created.Content.ReadAsStringAsync(), await replay.Content.ReadAsStringAsync());
+            Assert.Equal(17.99m, original.TotalAmount);
+            Assert.Equal(productCalls, Dependencies.ProductCalls);
+            Assert.Equal(inventoryCalls, Dependencies.InventoryCalls);
+        }
+        finally { Dependencies.ProductResponse = null; }
+    }
+
+    [Fact]
+    public async Task RejectedOrderReplaysOriginalShortfallsWithoutAnotherCall()
+    {
+        var first = Dependencies.AddProduct();
+        var second = Dependencies.AddProduct();
+        var key = NewKey();
+        Dependencies.InventoryResponse = (request, _) => Task.FromResult(DependencyStub.Json(HttpStatusCode.Conflict,
+            new { errorCode = "INSUFFICIENT_STOCK", reservationId = request.ReservationId,
+                shortfalls = new[] { new StockShortfall(second, 2, 1) } }));
+        Guid id;
+        try
+        {
+            using var response = await fixture.PostAsync(key, Item(first, 3), Item(second, 2));
+            Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+            using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            id = json.RootElement.GetProperty("orderId").GetGuid();
+            Assert.NotNull(response.Headers.Location);
+        }
+        finally { Dependencies.InventoryResponse = null; }
+        var calls = Dependencies.InventoryCalls;
+        using var replay = await fixture.PostAsync(key, Item(second, 2), Item(first, 3));
+        Assert.Equal(HttpStatusCode.Conflict, replay.StatusCode);
+        var saved = (await fixture.Client.GetFromJsonAsync<OrderResponse>($"/api/orders/{id}"))!;
+        Assert.Equal("Rejected", saved.Status);
+        Assert.Equal(1, Assert.Single(saved.Shortfalls).Available);
+        Assert.Equal(calls, Dependencies.InventoryCalls);
+    }
+
+    [Fact]
+    public async Task DifferentPayloadConflictsBeforeProductLookup()
+    {
+        var product = Dependencies.AddProduct();
+        var key = NewKey();
+        using var created = await fixture.PostAsync(key, Item(product));
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var calls = Dependencies.ProductCalls;
+        var inventoryCalls = Dependencies.InventoryCalls;
+        using var conflict = await fixture.PostAsync(key, Item(product, 2));
+        Assert.Equal(HttpStatusCode.Conflict, conflict.StatusCode);
+        using var json = JsonDocument.Parse(await conflict.Content.ReadAsStringAsync());
+        Assert.Equal("IDEMPOTENCY_KEY_CONFLICT", json.RootElement.GetProperty("errorCode").GetString());
+        Assert.Equal(calls, Dependencies.ProductCalls);
+        Assert.Equal(inventoryCalls, Dependencies.InventoryCalls);
+    }
+
+    [Fact]
     public async Task MissingAndInactiveProductsDoNotPersistOrders()
     {
         var inactive = Dependencies.AddProduct(active: false);
@@ -94,6 +206,45 @@ public sealed class OrderApiTests(OrderApiFixture fixture) : IClassFixture<Order
     }
 
     [Theory]
+    [InlineData("timeout")]
+    [InlineData("disconnect")]
+    [InlineData("server-error")]
+    public async Task UncertainInventoryLeavesPendingAndReplayDoesNotYetRecover(string failure)
+    {
+        var key = NewKey();
+        var product = Dependencies.AddProduct();
+        Dependencies.InventoryResponse = (_, _) => failure switch
+        {
+            "timeout" => throw new TaskCanceledException("Dependency timeout"),
+            "disconnect" => throw new HttpRequestException("Response lost"),
+            _ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable))
+        };
+        Guid id;
+        try
+        {
+            using var response = await fixture.PostAsync(key, Item(product));
+            Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+            var pending = (await response.Content.ReadFromJsonAsync<PendingOrderResponse>())!;
+            id = pending.OrderId;
+            Assert.Equal("Pending", pending.Status);
+            Assert.Equal("/api/orders/" + id, pending.StatusUrl);
+            Assert.Equal(pending.StatusUrl, response.Headers.Location!.OriginalString);
+        }
+        finally { Dependencies.InventoryResponse = null; }
+        var productCalls = Dependencies.ProductCalls;
+        var inventoryCalls = Dependencies.InventoryCalls;
+        var saved = (await fixture.Client.GetFromJsonAsync<OrderResponse>($"/api/orders/{id}"))!;
+        using var replay = await fixture.PostAsync(key, Item(product));
+        Assert.Equal(HttpStatusCode.Accepted, replay.StatusCode);
+        var after = (await fixture.Client.GetFromJsonAsync<OrderResponse>($"/api/orders/{id}"))!;
+        Assert.Equal(saved.UpdatedAtUtc, after.UpdatedAtUtc);
+        Assert.Equal(saved.LastAttemptAtUtc, after.LastAttemptAtUtc);
+        Assert.Equal("Pending", after.Status);
+        Assert.Equal(productCalls, Dependencies.ProductCalls);
+        Assert.Equal(inventoryCalls, Dependencies.InventoryCalls);
+    }
+
+    [Theory]
     [InlineData(400, "INVALID_RESERVATION", "Rejected", "INVENTORY_INVALID_REQUEST")]
     [InlineData(409, "RESERVATION_PAYLOAD_CONFLICT", "RequiresReview", "RESERVATION_PAYLOAD_CONFLICT")]
     [InlineData(409, "SOMETHING_ELSE", "RequiresReview", "INVENTORY_UNEXPECTED_RESPONSE")]
@@ -118,6 +269,10 @@ public sealed class OrderApiTests(OrderApiFixture fixture) : IClassFixture<Order
         var saved = (await fixture.Client.GetFromJsonAsync<OrderResponse>($"/api/orders/{id}"))!;
         Assert.Equal(expectedStatus, saved.Status);
         Assert.Equal(expectedCode, saved.FailureCode);
+        var calls = Dependencies.InventoryCalls;
+        using var replay = await fixture.PostAsync(key, Item(product));
+        Assert.Equal(HttpStatusCode.BadGateway, replay.StatusCode);
+        Assert.Equal(calls, Dependencies.InventoryCalls);
     }
 
     [Fact]
@@ -152,6 +307,19 @@ public sealed class OrderApiTests(OrderApiFixture fixture) : IClassFixture<Order
         var order = (await response.Content.ReadFromJsonAsync<OrderResponse>())!;
         Assert.Equal(50, order.Lines.Count);
         Assert.Equal(5000m, order.TotalAmount);
+    }
+
+    [Fact]
+    public async Task KeysAreCaseSensitiveAndSurroundingWhitespaceIsTrimmed()
+    {
+        var key = "checkout-" + NewKey();
+        var product = Dependencies.AddProduct();
+        using var first = await fixture.PostAsync(" " + key + " ", Item(product));
+        using var replay = await fixture.PostAsync(key, Item(product));
+        using var distinct = await fixture.PostAsync(key.ToUpperInvariant(), Item(product));
+        Assert.Equal(HttpStatusCode.Created, first.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, replay.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, distinct.StatusCode);
     }
 
     [Fact]
