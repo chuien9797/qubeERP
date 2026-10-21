@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: 'true'
+      DOTNET_SKIP_FIRST_TIME_EXPERIENCE: '1'
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+
+      - name: Install .NET SDK
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1
+        with:
+          global-json-file: global.json
+
+      - name: Check Docker and prepare SQL Server image
+        run: |
+          docker version
+          test "$(docker info --format '{{.OSType}}')" = linux
+          docker pull mcr.microsoft.com/mssql/server:2022-latest
+
+      - name: Restore dependencies
+        run: dotnet restore QubeERP.slnx --configfile NuGet.Config
+
+      - name: Build solution
+        run: dotnet build QubeERP.slnx --configuration Release --no-restore -m:1
+
+      - name: Run unit tests
+        run: >-
+          dotnet test QubeERP.slnx --configuration Release --no-build --no-restore -m:1
+          --filter 'Category!=Integration'
+          --logger trx --results-directory TestResults/unit
+
+      - name: Run SQL Server integration tests
+        run: >-
+          dotnet test QubeERP.slnx --configuration Release --no-build --no-restore -m:1
+          --filter 'Category=Integration'
+          --logger trx --results-directory TestResults/integration
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: test-results
+          path: TestResults/**/*.trx
+          if-no-files-found: warn
+          retention-days: 7
