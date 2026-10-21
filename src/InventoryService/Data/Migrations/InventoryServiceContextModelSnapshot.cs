@@ -21,6 +21,64 @@ namespace InventoryService.Data.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
+            modelBuilder.Entity("InventoryService.Domain.Reservation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("FailureCode")
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)");
+
+                    b.Property<string>("FailureDetailsJson")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("RequestFingerprint")
+                        .IsRequired()
+                        .HasColumnType("char(64)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(24)
+                        .HasColumnType("nvarchar(24)");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("Reservations", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_Reservations_FailureJson", "[FailureDetailsJson] IS NULL OR ISJSON([FailureDetailsJson]) = 1");
+
+                            t.HasCheckConstraint("CK_Reservations_Outcome", "([Status] = 'Rejected' AND [FailureCode] IS NOT NULL\n    AND [FailureCode] = 'INSUFFICIENT_STOCK' AND [FailureDetailsJson] IS NOT NULL)\nOR ([Status] IN ('Processing', 'Reserved') AND [FailureCode] IS NULL AND [FailureDetailsJson] IS NULL)");
+
+                            t.HasCheckConstraint("CK_Reservations_Status", "[Status] IN ('Processing', 'Reserved', 'Rejected')");
+                        });
+                });
+
+            modelBuilder.Entity("InventoryService.Domain.ReservationLine", b =>
+                {
+                    b.Property<Guid>("ReservationId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Quantity")
+                        .HasColumnType("int");
+
+                    b.HasKey("ReservationId", "ProductId");
+
+                    b.ToTable("ReservationLines", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_ReservationLines_Quantity", "[Quantity] >= 1 AND [Quantity] <= 10000");
+                        });
+                });
+
             modelBuilder.Entity("InventoryService.Domain.StockItem", b =>
                 {
                     b.Property<Guid>("ProductId")
@@ -94,6 +152,15 @@ namespace InventoryService.Data.Migrations
 
                             t.HasCheckConstraint("CK_StockMovements_Type", "[MovementType] IN ('InitialStock', 'StockSet', 'Reserve')");
                         });
+                });
+
+            modelBuilder.Entity("InventoryService.Domain.ReservationLine", b =>
+                {
+                    b.HasOne("InventoryService.Domain.Reservation", null)
+                        .WithMany()
+                        .HasForeignKey("ReservationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 #pragma warning restore 612, 618
         }
