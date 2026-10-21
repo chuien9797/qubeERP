@@ -22,12 +22,16 @@ public sealed class InfrastructureTests
         Assert.Equal(body, await response.Content.ReadAsStringAsync());
     }
 
-    [Fact]
-    public async Task SwaggerIsUnavailableOutsideDevelopment()
+    [Theory]
+    [InlineData("/swagger/v1/swagger.json")]
+    [InlineData("/swagger/request-builder.js")]
+    [InlineData("/swagger/request-builder.css")]
+    [InlineData("/swagger/products")]
+    public async Task SwaggerIsUnavailableOutsideDevelopment(string path)
     {
         await using var factory = new ApiFactory(true);
         using var client = factory.CreateClient();
-        using var response = await client.GetAsync("/swagger/v1/swagger.json");
+        using var response = await client.GetAsync(path);
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
 

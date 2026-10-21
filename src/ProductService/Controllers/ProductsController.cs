@@ -11,7 +11,8 @@ namespace ProductService.Controllers;
 public sealed class ProductsController(CatalogueService catalogue, ILogger<ProductsController> logger) : ControllerBase
 {
     [HttpPost]
-    [EndpointSummary("Create a product with a canonical SKU and a nonnegative price.")]
+    [EndpointSummary("Create a product.")]
+    [EndpointDescription("Enter a unique SKU, name and nonnegative unit price with at most two decimal places. The product ID is generated automatically. SKUs are trimmed and saved in uppercase. Creating a product does not initialise stock; set its stock count in InventoryService next.")]
     [ProducesResponseType<ProductResponse>(StatusCodes.Status201Created)]
     [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
@@ -26,6 +27,7 @@ public sealed class ProductsController(CatalogueService catalogue, ILogger<Produ
 
     [HttpGet]
     [EndpointSummary("List products, including inactive products, in creation order.")]
+    [EndpointDescription("Use offset to skip products and limit to choose the page size, up to 200. Products are returned in creation order, including inactive products.")]
     [ProducesResponseType<IReadOnlyList<ProductResponse>>(StatusCodes.Status200OK)]
     [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<IReadOnlyList<ProductResponse>>> List(
@@ -34,7 +36,8 @@ public sealed class ProductsController(CatalogueService catalogue, ILogger<Produ
         Ok(await catalogue.ListAsync(offset, limit, cancellationToken));
 
     [HttpGet("{id:guid}")]
-    [EndpointSummary("Get an existing product by ID, including its active status.")]
+    [EndpointSummary("View a product.")]
+    [EndpointDescription("Choose a product from the dropdown in Swagger. The response includes its generated ID, SKU, name, unit price and active status.")]
     [ProducesResponseType<ProductResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ProductResponse>> Get(Guid id, CancellationToken cancellationToken)
@@ -45,7 +48,8 @@ public sealed class ProductsController(CatalogueService catalogue, ILogger<Produ
     }
 
     [HttpPost("lookup")]
-    [EndpointSummary("Look up 1–50 distinct product IDs and return missing IDs separately.")]
+    [EndpointDescription("Select up to 50 different products in Swagger. The response contains product details and any IDs that were not found. OrderService uses this endpoint to load catalogue prices.")]
+    [EndpointSummary("Look up selected products.")]
     [ProducesResponseType<ProductLookupResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ProductLookupResponse>> Lookup(ProductLookupRequest request, CancellationToken cancellationToken) =>

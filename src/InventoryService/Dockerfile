@@ -6,6 +6,7 @@ COPY src/InventoryService/InventoryService.csproj src/InventoryService/
 RUN dotnet restore src/InventoryService/InventoryService.csproj
 COPY src/Shared.Contracts/ src/Shared.Contracts/
 COPY src/InventoryService/ src/InventoryService/
+COPY src/ApiDocumentation/ src/ApiDocumentation/
 RUN dotnet publish src/InventoryService/InventoryService.csproj -c Release --no-restore -o /app
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final

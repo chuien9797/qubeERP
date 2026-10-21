@@ -6,6 +6,7 @@ COPY src/OrderService/OrderService.csproj src/OrderService/
 RUN dotnet restore src/OrderService/OrderService.csproj
 COPY src/Shared.Contracts/ src/Shared.Contracts/
 COPY src/OrderService/ src/OrderService/
+COPY src/ApiDocumentation/ src/ApiDocumentation/
 RUN dotnet publish src/OrderService/OrderService.csproj -c Release --no-restore -o /app
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final

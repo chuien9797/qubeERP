@@ -11,7 +11,8 @@ namespace InventoryService.Controllers;
 public sealed class InventoryController(StockService stock, ILogger<InventoryController> logger) : ControllerBase
 {
     [HttpPut("{productId:guid}")]
-    [EndpointSummary("Set physical stock to an absolute quantity, without changing reserved stock.")]
+    [EndpointSummary("Set a product's physical stock count.")]
+    [EndpointDescription("Choose a product, enter its total physical quantity and give a reason. This replaces the previous count; it does not add a quantity. Reserved stock stays unchanged, so the new count cannot be lower than Reserved. A product must exist before its first stock count is created.")]
     [ProducesResponseType<InventoryResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
@@ -45,7 +46,8 @@ public sealed class InventoryController(StockService stock, ILogger<InventoryCon
     }
 
     [HttpGet("{productId:guid}")]
-    [EndpointSummary("Read physical, reserved and available stock.")]
+    [EndpointSummary("Check a product's stock balance.")]
+    [EndpointDescription("Choose a product to see OnHand, Reserved and AvailableQuantity. AvailableQuantity equals OnHand minus Reserved. A product without an initial stock count returns 404.")]
     [ProducesResponseType<InventoryResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<InventoryResponse>> Get(Guid productId, CancellationToken cancellationToken)
@@ -65,7 +67,8 @@ public sealed class InventoryController(StockService stock, ILogger<InventoryCon
     }
 
     [HttpGet("{productId:guid}/movements")]
-    [EndpointSummary("Read the stock ledger in ascending movement ID order.")]
+    [EndpointSummary("View a product's stock movements.")]
+    [EndpointDescription("Choose a product to see its stock-count changes and reservations, oldest first. Reservations increase Reserved and leave physical OnHand unchanged. Use offset and limit to page through the results.")]
     [ProducesResponseType<IReadOnlyList<StockMovementResponse>>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<IReadOnlyList<StockMovementResponse>>> Movements(

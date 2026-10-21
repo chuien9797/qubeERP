@@ -6,6 +6,7 @@ COPY src/ProductService/ProductService.csproj src/ProductService/
 RUN dotnet restore src/ProductService/ProductService.csproj
 COPY src/Shared.Contracts/ src/Shared.Contracts/
 COPY src/ProductService/ src/ProductService/
+COPY src/ApiDocumentation/ src/ApiDocumentation/
 RUN dotnet publish src/ProductService/ProductService.csproj -c Release --no-restore -o /app
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final

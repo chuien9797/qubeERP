@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using ProductService.Application;
 using ProductService.OpenApi;
 using ProductService.Data;
+using QubeERP.ApiDocumentation;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddDbContext<ProductServiceContext>((services, options) =>
@@ -31,6 +32,7 @@ builder.Services.AddControllers().ConfigureApiBehaviorOptions(options =>
     };
 });
 builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerRequestBuilder(builder.Configuration);
 builder.Services.AddSwaggerGen(options => options.SchemaFilter<ProductExamples>());
 builder.Services.AddProblemDetails(options => options.CustomizeProblemDetails = context =>
 {
@@ -56,8 +58,9 @@ app.UseStatusCodePages();
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
-    app.UseSwaggerUI();
+    app.UseSwaggerUI(options => options.UseRequestBuilder("Products"));
 }
+app.MapSwaggerRequestBuilder("Products");
 app.MapControllers();
 app.MapHealthChecks("/health");
 

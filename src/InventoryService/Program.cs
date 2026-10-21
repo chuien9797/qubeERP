@@ -5,6 +5,7 @@ using InventoryService.Clients;
 using InventoryService.Data;
 using InventoryService.Health;
 using InventoryService.OpenApi;
+using QubeERP.ApiDocumentation;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddDbContextFactory<InventoryServiceContext>((services, options) =>
@@ -40,6 +41,7 @@ builder.Services.AddControllers().ConfigureApiBehaviorOptions(options =>
     };
 });
 builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerRequestBuilder(builder.Configuration);
 builder.Services.AddSwaggerGen(options => options.SchemaFilter<InventoryExamples>());
 builder.Services.AddProblemDetails(options => options.CustomizeProblemDetails = context =>
 {
@@ -65,8 +67,9 @@ app.UseStatusCodePages();
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
-    app.UseSwaggerUI();
+    app.UseSwaggerUI(options => options.UseRequestBuilder("Inventory"));
 }
+app.MapSwaggerRequestBuilder("Inventory");
 app.MapControllers();
 app.MapHealthChecks("/health");
 

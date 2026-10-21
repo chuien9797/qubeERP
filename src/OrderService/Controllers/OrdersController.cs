@@ -11,7 +11,8 @@ namespace OrderService.Controllers;
 public sealed class OrdersController(OrderApplicationService orders) : ControllerBase
 {
     [HttpPost]
-    [EndpointSummary("Create an order with saved product prices and an atomic stock reservation.")]
+    [EndpointSummary("Create an order for selected products.")]
+    [EndpointDescription("Choose active products and quantities in Swagger. A request key is generated automatically; keep it to retry the same order or recover a Pending result. Choose New order for a separate purchase. OrderService generates the order ID and saves catalogue names, SKUs and prices. Confirmation reserves stock without reducing physical OnHand. A shortage rejects the whole order. A 202 response means the outcome is uncertain; retry the same key and items.")]
     [ProducesResponseType<OrderResponse>(201)]
     [ProducesResponseType<OrderResponse>(200)]
     [ProducesResponseType<PendingOrderResponse>(202)]
@@ -64,7 +65,8 @@ public sealed class OrdersController(OrderApplicationService orders) : Controlle
     }
 
     [HttpGet("{id:guid}")]
-    [EndpointSummary("Read an order and its original prices without contacting other services.")]
+    [EndpointSummary("View an order and its saved prices.")]
+    [EndpointDescription("Choose an order returned by this Swagger page or enter a known order ID. Reading an order does not retry reservations or change its status. To recover a Pending order, repeat its original POST with the same request key and items.")]
     [ProducesResponseType<OrderResponse>(200)]
     [ProducesResponseType<ProblemDetails>(404)]
     public async Task<ActionResult<OrderResponse>> Get(Guid id, CancellationToken cancellationToken)

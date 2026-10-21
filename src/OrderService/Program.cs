@@ -5,6 +5,7 @@ using OrderService.Application;
 using OrderService.Clients;
 using OrderService.Data;
 using OrderService.OpenApi;
+using QubeERP.ApiDocumentation;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddDbContextFactory<OrderServiceContext>((services, options) =>
@@ -42,6 +43,7 @@ builder.Services.AddControllers().ConfigureApiBehaviorOptions(options =>
     };
 });
 builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerRequestBuilder(builder.Configuration);
 builder.Services.AddSwaggerGen(options => options.SchemaFilter<OrderExamples>());
 builder.Services.AddProblemDetails(options => options.CustomizeProblemDetails = context =>
 {
@@ -67,8 +69,9 @@ app.UseStatusCodePages();
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
-    app.UseSwaggerUI();
+    app.UseSwaggerUI(options => options.UseRequestBuilder("Orders"));
 }
+app.MapSwaggerRequestBuilder("Orders");
 app.MapControllers();
 app.MapHealthChecks("/health");
 

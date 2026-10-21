@@ -1,0 +1,11 @@
+.swagger-ui .qube-form { padding: 16px 20px; background: #f5f8fb; border: 1px solid #c6d4df; border-radius: 6px; }
+.swagger-ui .qube-form label { display: block; font-weight: 600; margin: 12px 0 6px; }
+.swagger-ui .qube-form input, .swagger-ui .qube-form select, .swagger-ui .qube-form textarea { width: 100%; max-width: 100%; background: white; }
+.swagger-ui .qube-form input[readonly] { background: #edf1f5; }
+.swagger-ui .qube-form button, .swagger-ui .qube-parameter button { margin: 8px 8px 4px 0; }
+.swagger-ui .qube-line { display: grid; grid-template-columns: minmax(0, 1fr) 100px auto; gap: 12px; align-items: end; margin-bottom: 12px; }
+.swagger-ui .qube-help { font-size: 13px; line-height: 1.5; color: #425466; margin: 8px 0; }
+.swagger-ui .qube-error { color: #a32121; }
+.swagger-ui .qube-parameter input, .swagger-ui .qube-parameter select { width: 100%; max-width: 100%; }
+.swagger-ui .qube-mode { margin: 8px 0; }
+@media (max-width: 600px) { .swagger-ui .qube-line { grid-template-columns: 1fr; } }

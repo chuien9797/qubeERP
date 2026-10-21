@@ -10,7 +10,8 @@ namespace InventoryService.Controllers;
 public sealed class ReservationsController(ReservationService reservations) : ControllerBase
 {
     [HttpPost]
-    [EndpointSummary("Reserve every requested item or persist a terminal stock rejection.")]
+    [EndpointSummary("Reserve stock for selected products.")]
+    [EndpointDescription("In Swagger, select products and quantities; the reservation ID is generated for you. Execute again with the same ID to retry safely. Use New reservation for a separate request. If any product has insufficient stock, nothing is reserved and that request keeps its rejected result. OrderService normally calls this endpoint using the order ID.")]
     [ProducesResponseType<ReservationResponse>(StatusCodes.Status201Created)]
     [ProducesResponseType<ReservationResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
@@ -47,7 +48,8 @@ public sealed class ReservationsController(ReservationService reservations) : Co
     }
 
     [HttpGet("{reservationId:guid}")]
-    [EndpointSummary("Read a persisted reservation outcome without changing stock.")]
+    [EndpointSummary("Check a reservation's result.")]
+    [EndpointDescription("Choose a recent reservation in Swagger or enter a known reservation ID. For an order reservation, use its order ID. Reading a reservation does not change stock.")]
     [ProducesResponseType<ReservationResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ReservationResponse>> Get(Guid reservationId, CancellationToken cancellationToken)
