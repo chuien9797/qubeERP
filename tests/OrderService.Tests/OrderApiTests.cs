@@ -10,6 +10,7 @@ using Xunit;
 namespace OrderService.Tests;
 
 [Trait("Category", "Integration")]
+[Collection("Order SQL")]
 public sealed class OrderApiTests(OrderApiFixture fixture) : IClassFixture<OrderApiFixture>
 {
     private DependencyStub Dependencies => fixture.Dependencies;
@@ -85,8 +86,10 @@ public sealed class OrderApiTests(OrderApiFixture fixture) : IClassFixture<Order
                 Assert.Equal(ids[0], saved.Id);
                 Assert.Equal("Confirmed", saved.Status);
                 Assert.Single(saved.Lines);
-                Assert.Equal(callsBefore + 1, Dependencies.InventoryCalls);
-                Assert.Single(Dependencies.Reservations, request => request.ReservationId == saved.Id);
+                Assert.InRange(Dependencies.InventoryCalls - callsBefore, 1, 2);
+                Assert.Single(Dependencies.Outcomes, outcome => outcome.Key == saved.Id);
+                Assert.All(Dependencies.Reservations.Where(request => request.ReservationId == saved.Id), request =>
+                    Assert.Equal(3, Assert.Single(request.Items!).Quantity));
             }
             finally { foreach (var response in responses) response.Dispose(); }
         }
@@ -209,7 +212,7 @@ public sealed class OrderApiTests(OrderApiFixture fixture) : IClassFixture<Order
     [InlineData("timeout")]
     [InlineData("disconnect")]
     [InlineData("server-error")]
-    public async Task UncertainInventoryLeavesPendingAndReplayDoesNotYetRecover(string failure)
+    public async Task UncertainInventoryLeavesPendingUntilReplayRecovers(string failure)
     {
         var key = NewKey();
         var product = Dependencies.AddProduct();
@@ -233,15 +236,18 @@ public sealed class OrderApiTests(OrderApiFixture fixture) : IClassFixture<Order
         finally { Dependencies.InventoryResponse = null; }
         var productCalls = Dependencies.ProductCalls;
         var inventoryCalls = Dependencies.InventoryCalls;
+        var queries = Dependencies.InventoryQueryCalls;
         var saved = (await fixture.Client.GetFromJsonAsync<OrderResponse>($"/api/orders/{id}"))!;
+        Assert.Equal("Pending", saved.Status);
+        Assert.Equal(queries, Dependencies.InventoryQueryCalls);
         using var replay = await fixture.PostAsync(key, Item(product));
-        Assert.Equal(HttpStatusCode.Accepted, replay.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, replay.StatusCode);
         var after = (await fixture.Client.GetFromJsonAsync<OrderResponse>($"/api/orders/{id}"))!;
-        Assert.Equal(saved.UpdatedAtUtc, after.UpdatedAtUtc);
-        Assert.Equal(saved.LastAttemptAtUtc, after.LastAttemptAtUtc);
-        Assert.Equal("Pending", after.Status);
+        Assert.Equal("Confirmed", after.Status);
+        Assert.True(after.LastAttemptAtUtc >= saved.LastAttemptAtUtc);
         Assert.Equal(productCalls, Dependencies.ProductCalls);
-        Assert.Equal(inventoryCalls, Dependencies.InventoryCalls);
+        Assert.Equal(inventoryCalls + 1, Dependencies.InventoryCalls);
+        Assert.Equal(queries + 1, Dependencies.InventoryQueryCalls);
     }
 
     [Theory]

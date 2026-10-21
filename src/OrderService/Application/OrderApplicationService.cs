@@ -30,7 +30,7 @@ public sealed class OrderApplicationService(
         var existing = await FindByKeyAsync(key, cancellationToken);
         if (existing is not null)
         {
-            return Replay(existing, fingerprint);
+            return await ReplayAsync(existing, fingerprint, cancellationToken);
         }
 
         var lookup = await products.LookupAsync(request.Items!.Select(item => item.ProductId).ToArray(), cancellationToken);
@@ -81,7 +81,7 @@ public sealed class OrderApplicationService(
         {
             existing = await FindByKeyAsync(key, cancellationToken)
                 ?? throw new InvalidOperationException("The winning order could not be loaded.", exception);
-            return Replay(existing, fingerprint);
+            return await ReplayAsync(existing, fingerprint, cancellationToken);
         }
 
         if (await RecordAttemptAsync(order.Id, cancellationToken))
@@ -151,10 +151,32 @@ public sealed class OrderApplicationService(
                 .SetProperty(value => value.UpdatedAtUtc, now), cancellationToken);
     }
 
-    private static OrderResult Replay(Order order, string fingerprint) =>
-        string.Equals(order.RequestFingerprint, fingerprint, StringComparison.Ordinal)
-            ? new OrderResult(ToResponse(order))
-            : new OrderResult(ToResponse(order), ErrorCode: "IDEMPOTENCY_KEY_CONFLICT");
+    private async Task<OrderResult> ReplayAsync(Order order, string fingerprint, CancellationToken cancellationToken)
+    {
+        if (!string.Equals(order.RequestFingerprint, fingerprint, StringComparison.Ordinal))
+        {
+            return new OrderResult(ToResponse(order), ErrorCode: "IDEMPOTENCY_KEY_CONFLICT");
+        }
+
+        if (order.Status != "Pending")
+        {
+            return new OrderResult(ToResponse(order));
+        }
+
+        if (await RecordAttemptAsync(order.Id, cancellationToken))
+        {
+            var request = ToReservationRequest(order);
+            var result = await inventory.GetAsync(order.Id, request.Items!, cancellationToken);
+            if (result.Outcome == InventoryOutcome.NotFound)
+            {
+                result = await inventory.ReserveAsync(request, cancellationToken);
+            }
+
+            await ApplyOutcomeAsync(order.Id, result, cancellationToken);
+        }
+
+        return new OrderResult(await GetAsync(order.Id, cancellationToken));
+    }
 
     private static CreateReservationRequest ToReservationRequest(Order order) => new()
     {
