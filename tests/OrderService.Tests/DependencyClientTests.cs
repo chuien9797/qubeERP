@@ -115,6 +115,56 @@ public sealed class DependencyClientTests
         {
             ReservationId = Guid.NewGuid(), Items = [new ReservationItemRequest { ProductId = Guid.NewGuid(), Quantity = 1 }]
         }, source.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => inventory.GetAsync(Guid.NewGuid(), [], source.Token));
+    }
+
+    [Theory]
+    [InlineData("reserved", InventoryOutcome.Reserved)]
+    [InlineData("rejected", InventoryOutcome.Rejected)]
+    [InlineData("missing", InventoryOutcome.NotFound)]
+    [InlineData("generic-404", InventoryOutcome.UnexpectedResponse)]
+    [InlineData("wrong-404-id", InventoryOutcome.UnexpectedResponse)]
+    [InlineData("empty-404", InventoryOutcome.UnexpectedResponse)]
+    [InlineData("wrong-id", InventoryOutcome.UnexpectedResponse)]
+    [InlineData("processing", InventoryOutcome.UnexpectedResponse)]
+    [InlineData("wrong-shortfall", InventoryOutcome.UnexpectedResponse)]
+    [InlineData("wrong-failure-code", InventoryOutcome.UnexpectedResponse)]
+    [InlineData("invalid-request", InventoryOutcome.UnexpectedResponse)]
+    [InlineData("forbidden", InventoryOutcome.UnexpectedResponse)]
+    [InlineData("malformed-json", InventoryOutcome.UnexpectedResponse)]
+    [InlineData("server-error", InventoryOutcome.Uncertain)]
+    [InlineData("timeout", InventoryOutcome.Uncertain)]
+    [InlineData("disconnect", InventoryOutcome.Uncertain)]
+    public async Task ReservationQueryValidatesSavedOutcomesAndGenuineAbsence(string result, InventoryOutcome expected)
+    {
+        using var dependencies = new DependencyStub();
+        var id = Guid.NewGuid();
+        var product = Guid.NewGuid();
+        dependencies.InventoryQueryResponse = (_, _) => Task.FromResult(result switch
+        {
+            "reserved" => DependencyStub.Json(HttpStatusCode.OK, new ReservationResponse(id, "Reserved", null, [])),
+            "rejected" => DependencyStub.Json(HttpStatusCode.OK, new ReservationResponse(id, "Rejected", "INSUFFICIENT_STOCK", [new StockShortfall(product, 2, 1)])),
+            "missing" => DependencyStub.Json(HttpStatusCode.NotFound, new { errorCode = "RESERVATION_NOT_FOUND", reservationId = id }),
+            "generic-404" => DependencyStub.Json(HttpStatusCode.NotFound, new { errorCode = "NOT_FOUND", reservationId = id }),
+            "wrong-404-id" => DependencyStub.Json(HttpStatusCode.NotFound, new { errorCode = "RESERVATION_NOT_FOUND", reservationId = Guid.NewGuid() }),
+            "empty-404" => Raw(HttpStatusCode.NotFound, ""),
+            "wrong-id" => DependencyStub.Json(HttpStatusCode.OK, new ReservationResponse(Guid.NewGuid(), "Reserved", null, [])),
+            "processing" => DependencyStub.Json(HttpStatusCode.OK, new ReservationResponse(id, "Processing", null, [])),
+            "wrong-shortfall" => DependencyStub.Json(HttpStatusCode.OK, new ReservationResponse(id, "Rejected", "INSUFFICIENT_STOCK", [new StockShortfall(product, 3, 1)])),
+            "wrong-failure-code" => DependencyStub.Json(HttpStatusCode.OK, new ReservationResponse(id, "Rejected", "UNKNOWN", [new StockShortfall(product, 2, 1)])),
+            "invalid-request" => DependencyStub.Json(HttpStatusCode.BadRequest, new { errorCode = "INVALID_RESERVATION" }),
+            "forbidden" => new HttpResponseMessage(HttpStatusCode.Forbidden),
+            "malformed-json" => Raw(HttpStatusCode.OK, "{invalid"),
+            "timeout" => throw new TaskCanceledException("Query timeout"),
+            "disconnect" => throw new HttpRequestException("Query disconnected"),
+            _ => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
+        });
+        using var http = new HttpClient(dependencies) { BaseAddress = new Uri("http://dependencies.test") };
+        var client = new InventoryClient(http, NullLogger<InventoryClient>.Instance);
+        var actual = await client.GetAsync(id, [new ReservationItemRequest { ProductId = product, Quantity = 2 }], CancellationToken.None);
+        Assert.Equal(expected, actual.Outcome);
+        Assert.Equal(0, dependencies.InventoryCalls);
+        Assert.Equal(id, Assert.Single(dependencies.ReservationQueries));
     }
 
     private static HttpResponseMessage Raw(HttpStatusCode status, string json) => new(status)
