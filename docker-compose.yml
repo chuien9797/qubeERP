@@ -12,11 +12,26 @@ services:
     volumes:
       - sql-data:/var/opt/mssql
     healthcheck:
-      test: ["CMD-SHELL", "test -x /opt/mssql-tools18/bin/sqlcmd && /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -C -b -Q 'SELECT 1' -o /dev/null"]
+      test: ["CMD-SHELL", "test -x /opt/mssql-tools18/bin/sqlcmd && SQLCMDPASSWORD=\"$$MSSQL_SA_PASSWORD\" /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -C -b -Q 'SELECT 1' -o /dev/null"]
       interval: 10s
       timeout: 5s
       retries: 20
       start_period: 30s
+
+  database-setup:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    entrypoint: ["/bin/bash", "/setup/Initialize-Databases.sh"]
+    environment:
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:?Run scripts/Initialize-LocalEnvironment.ps1}
+      PRODUCT_DB_PASSWORD: ${PRODUCT_DB_PASSWORD:?Run scripts/Initialize-LocalEnvironment.ps1}
+      INVENTORY_DB_PASSWORD: ${INVENTORY_DB_PASSWORD:?Run scripts/Initialize-LocalEnvironment.ps1}
+      ORDER_DB_PASSWORD: ${ORDER_DB_PASSWORD:?Run scripts/Initialize-LocalEnvironment.ps1}
+    volumes:
+      - ./scripts/Initialize-Databases.sh:/setup/Initialize-Databases.sh:ro
+      - ./scripts/Initialize-Databases.sql:/setup/Initialize-Databases.sql:ro
+    depends_on:
+      sqlserver:
+        condition: service_healthy
 
   product-service:
     build:
@@ -24,12 +39,12 @@ services:
       dockerfile: src/ProductService/Dockerfile
     environment:
       ASPNETCORE_ENVIRONMENT: Development
-      ConnectionStrings__Database: Server=sqlserver;Database=ProductDb;User Id=sa;Password=${MSSQL_SA_PASSWORD};TrustServerCertificate=True;Connect Timeout=5
+      ConnectionStrings__Database: Server=sqlserver;Database=ProductDb;User Id=qube_product;Password=${PRODUCT_DB_PASSWORD:?Run scripts/Initialize-LocalEnvironment.ps1};TrustServerCertificate=True;Connect Timeout=5
     ports:
       - "127.0.0.1:5101:8080"
     depends_on:
-      sqlserver:
-        condition: service_healthy
+      database-setup:
+        condition: service_completed_successfully
 
   inventory-service:
     build:
@@ -37,13 +52,13 @@ services:
       dockerfile: src/InventoryService/Dockerfile
     environment:
       ASPNETCORE_ENVIRONMENT: Development
-      ConnectionStrings__Database: Server=sqlserver;Database=InventoryDb;User Id=sa;Password=${MSSQL_SA_PASSWORD};TrustServerCertificate=True;Connect Timeout=5
+      ConnectionStrings__Database: Server=sqlserver;Database=InventoryDb;User Id=qube_inventory;Password=${INVENTORY_DB_PASSWORD:?Run scripts/Initialize-LocalEnvironment.ps1};TrustServerCertificate=True;Connect Timeout=5
       Services__Product: http://product-service:8080
     ports:
       - "127.0.0.1:5102:8080"
     depends_on:
-      sqlserver:
-        condition: service_healthy
+      database-setup:
+        condition: service_completed_successfully
 
   order-service:
     build:
@@ -51,14 +66,14 @@ services:
       dockerfile: src/OrderService/Dockerfile
     environment:
       ASPNETCORE_ENVIRONMENT: Development
-      ConnectionStrings__Database: Server=sqlserver;Database=OrderDb;User Id=sa;Password=${MSSQL_SA_PASSWORD};TrustServerCertificate=True;Connect Timeout=5
+      ConnectionStrings__Database: Server=sqlserver;Database=OrderDb;User Id=qube_order;Password=${ORDER_DB_PASSWORD:?Run scripts/Initialize-LocalEnvironment.ps1};TrustServerCertificate=True;Connect Timeout=5
       Services__Product: http://product-service:8080
       Services__Inventory: http://inventory-service:8080
     ports:
       - "127.0.0.1:5103:8080"
     depends_on:
-      sqlserver:
-        condition: service_healthy
+      database-setup:
+        condition: service_completed_successfully
 
 volumes:
   sql-data:
