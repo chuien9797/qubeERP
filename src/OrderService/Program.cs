@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using OrderService.Data;
+using OrderService.Clients;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddDbContext<OrderServiceContext>((services, options) =>
@@ -10,6 +11,16 @@ builder.Services.AddDbContext<OrderServiceContext>((services, options) =>
     options.UseSqlServer(connectionString, sql => sql.EnableRetryOnFailure(5));
 });
 builder.Services.AddHealthChecks().AddCheck<DatabaseHealthCheck>("database", timeout: TimeSpan.FromSeconds(5));
+builder.Services.AddHttpClient<IProductClient, ProductClient>(client =>
+{
+    client.BaseAddress = new Uri(builder.Configuration["Services:Product"] ?? "http://localhost:5101");
+    client.Timeout = TimeSpan.FromSeconds(5);
+});
+builder.Services.AddHttpClient<IInventoryClient, InventoryClient>(client =>
+{
+    client.BaseAddress = new Uri(builder.Configuration["Services:Inventory"] ?? "http://localhost:5102");
+    client.Timeout = TimeSpan.FromSeconds(5);
+});
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
