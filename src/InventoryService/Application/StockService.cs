@@ -20,6 +20,21 @@ public sealed class StockService(IDbContextFactory<InventoryServiceContext> cont
             .SingleOrDefaultAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<StockMovementResponse>> GetMovementsAsync(
+        Guid productId, int offset, int limit, CancellationToken cancellationToken)
+    {
+        await using var database = await contextFactory.CreateDbContextAsync(cancellationToken);
+        return await database.StockMovements.AsNoTracking()
+            .Where(movement => movement.ProductId == productId)
+            .OrderBy(movement => movement.Id)
+            .Skip(offset)
+            .Take(limit)
+            .Select(movement => new StockMovementResponse(movement.Id, movement.OperationId, movement.ProductId,
+                movement.MovementType, movement.OnHandDelta, movement.ReservedDelta, movement.OnHandAfter,
+                movement.ReservedAfter, movement.Reason, movement.CreatedAtUtc))
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<StockUpdateResult> SetAsync(
         Guid productId, int onHand, string reason, CancellationToken cancellationToken)
     {
@@ -73,6 +88,12 @@ public sealed class StockService(IDbContextFactory<InventoryServiceContext> cont
                 });
                 await database.SaveChangesAsync(cancellationToken);
 
+                if (onHand > 0)
+                {
+                    database.StockMovements.Add(CreateMovement(productId, "InitialStock", onHand, onHand, 0, reason, now));
+                    await database.SaveChangesAsync(cancellationToken);
+                }
+
                 await transaction.CommitAsync(cancellationToken);
             });
             return true;
@@ -102,6 +123,14 @@ public sealed class StockService(IDbContextFactory<InventoryServiceContext> cont
                     .SingleOrDefaultAsync(item => item.ProductId == productId, cancellationToken);
                 var status = current is null ? StockUpdateStatus.StockNotFound : StockUpdateStatus.BelowReserved;
                 return new StockUpdateResult(status);
+            }
+
+            if (changed.Value.PreviousOnHand != onHand)
+            {
+                var delta = checked(onHand - changed.Value.PreviousOnHand);
+                database.StockMovements.Add(CreateMovement(productId, "StockSet", delta, onHand,
+                    changed.Value.Reserved, reason, now));
+                await database.SaveChangesAsync(cancellationToken);
             }
 
             await transaction.CommitAsync(cancellationToken);
@@ -138,4 +167,20 @@ public sealed class StockService(IDbContextFactory<InventoryServiceContext> cont
         return (reader.GetInt32(0), reader.GetInt32(2));
     }
 
+    private static StockMovement CreateMovement(Guid productId, string movementType, int delta,
+        int onHand, int reserved, string reason, DateTimeOffset now)
+    {
+        return new StockMovement
+        {
+            OperationId = Guid.NewGuid(),
+            ProductId = productId,
+            MovementType = movementType,
+            OnHandDelta = delta,
+            ReservedDelta = 0,
+            OnHandAfter = onHand,
+            ReservedAfter = reserved,
+            Reason = reason.Trim(),
+            CreatedAtUtc = now
+        };
+    }
 }

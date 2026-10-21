@@ -64,6 +64,29 @@ public sealed class InventoryController(StockService stock, ILogger<InventoryCon
         return Ok(balance);
     }
 
+    [HttpGet("{productId:guid}/movements")]
+    [EndpointSummary("Read the stock ledger in ascending movement ID order.")]
+    [ProducesResponseType<IReadOnlyList<StockMovementResponse>>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<IReadOnlyList<StockMovementResponse>>> Movements(
+        Guid productId, CancellationToken cancellationToken,
+        [FromQuery, Range(0, int.MaxValue)] int offset = 0,
+        [FromQuery, Range(1, 200)] int limit = 100)
+    {
+        if (productId == Guid.Empty)
+        {
+            return InventoryProblem(400, "Product ID must not be empty.", "INVALID_REQUEST");
+        }
+
+        if (await stock.GetAsync(productId, cancellationToken) is null)
+        {
+            return InventoryProblem(404, "Stock item not found.", "STOCK_NOT_FOUND");
+        }
+
+        var movements = await stock.GetMovementsAsync(productId, offset, limit, cancellationToken);
+        return Ok(movements);
+    }
+
     private ObjectResult InventoryProblem(int status, string title, string errorCode)
     {
         var response = Problem(statusCode: status, title: title);
