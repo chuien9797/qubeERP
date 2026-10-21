@@ -12,6 +12,7 @@ using Xunit;
 namespace InventoryService.Tests;
 
 [Trait("Category", "Integration")]
+[Collection("Inventory SQL")]
 public sealed class InventoryApiTests(InventoryApiFixture fixture) : IClassFixture<InventoryApiFixture>
 {
     [Fact]
