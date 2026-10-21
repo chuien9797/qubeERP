@@ -19,7 +19,7 @@ public sealed class DatabaseInfrastructureTests
         await sql.StartAsync();
         await VerifyDatabase<ProductServiceContext>(sql.GetConnectionString(), "ProductDb", 2, 1,
             options => new ProductServiceContext(options));
-        await VerifyDatabase<InventoryServiceContext>(sql.GetConnectionString(), "InventoryDb", 1, 0,
+        await VerifyDatabase<InventoryServiceContext>(sql.GetConnectionString(), "InventoryDb", 2, 2,
             options => new InventoryServiceContext(options));
         await VerifyDatabase<OrderServiceContext>(sql.GetConnectionString(), "OrderDb", 1, 0,
             options => new OrderServiceContext(options));
