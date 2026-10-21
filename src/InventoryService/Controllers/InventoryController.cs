@@ -12,7 +12,7 @@ public sealed class InventoryController(StockService stock, ILogger<InventoryCon
 {
     [HttpPut("{productId:guid}")]
     [EndpointSummary("Set a product's physical stock count.")]
-    [EndpointDescription("Choose a product, enter its total physical quantity and give a reason. This replaces the previous count; it does not add a quantity. Reserved stock stays unchanged, so the new count cannot be lower than Reserved. A product must exist before its first stock count is created.")]
+    [EndpointDescription("Choose a product, enter its total physical quantity and give a reason. This replaces the previous count; it does not add a quantity. Use POST receipts to add newly received stock instead. Reserved stock stays unchanged, so the new count cannot be lower than Reserved. A product must exist before its first stock count is created.")]
     [ProducesResponseType<InventoryResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]

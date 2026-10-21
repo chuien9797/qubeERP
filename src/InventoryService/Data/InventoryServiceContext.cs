@@ -24,13 +24,17 @@ public sealed class InventoryServiceContext(DbContextOptions<InventoryServiceCon
             table.HasCheckConstraint("CK_StockMovements_Balances",
                 "[OnHandAfter] >= 0 AND [ReservedAfter] >= 0 AND [ReservedAfter] <= [OnHandAfter]");
             table.HasCheckConstraint("CK_StockMovements_Type",
-                "[MovementType] IN ('InitialStock', 'StockSet', 'Reserve')");
+                "[MovementType] IN ('InitialStock', 'StockSet', 'Reserve', 'StockReceipt')");
+            table.HasCheckConstraint("CK_StockMovements_Receipt",
+                "[MovementType] <> 'StockReceipt' OR ([OnHandDelta] > 0 AND [ReservedDelta] = 0 AND [Reason] IS NOT NULL AND LEN(LTRIM(RTRIM([Reason]))) > 0)");
         });
         movement.HasKey(item => item.Id);
         movement.Property(item => item.MovementType).HasMaxLength(24).IsRequired();
         movement.Property(item => item.Reason).HasMaxLength(300);
         movement.HasIndex(item => new { item.OperationId, item.ProductId, item.MovementType }).IsUnique();
         movement.HasIndex(item => new { item.ProductId, item.Id });
+        movement.HasIndex(item => item.OperationId).HasDatabaseName("UX_StockMovements_ReceiptOperation")
+            .IsUnique().HasFilter("[MovementType] = 'StockReceipt'");
 
         var reservation = modelBuilder.Entity<Reservation>();
         reservation.ToTable("Reservations", table =>

@@ -144,9 +144,13 @@
 
         function RequestForm({ Original, kind, ...props }) {
             const [raw, setRaw] = React.useState(false);
-            const persistent = kind === "reservation" || kind === "order";
+            const persistent = ["reservation", "order", "receipt"].includes(kind);
             const body = parseBody(props.requestBodyValue || (persistent ? readDraft(kind) : null));
             const [generatedId, setGeneratedId] = React.useState(() => body.reservationId || crypto.randomUUID());
+            const [receiptId, setReceiptId] = React.useState(() => body.operationId || crypto.randomUUID());
+            React.useEffect(() => {
+                if (kind === "receipt" && body.operationId) setReceiptId(body.operationId);
+            }, [body.operationId]);
             React.useEffect(() => {
                 if (kind === "reservation" && body.reservationId) setGeneratedId(body.reservationId);
             }, [body.reservationId]);
@@ -157,11 +161,14 @@
             const update = changes => changeBody(JSON.stringify({
                 ...body,
                 ...(kind === "reservation" ? { reservationId: body.reservationId || generatedId } : {}),
+                ...(kind === "receipt" ? { operationId: body.operationId || receiptId } : {}),
                 ...changes
             }, null, 2));
             React.useEffect(() => {
                 if (kind === "reservation") {
                     changeBody(JSON.stringify({ ...body, reservationId: body.reservationId || generatedId, items: body.items || [] }, null, 2));
+                } else if (kind === "receipt") {
+                    changeBody(JSON.stringify({ ...body, operationId: body.operationId || receiptId, quantity: body.quantity ?? null, reason: body.reason || "" }, null, 2));
                 } else if (!props.requestBodyValue) {
                     const initial = kind === "product" ? { sku: "", name: "", description: "", unitPrice: null }
                         : kind === "stock" ? { onHand: null, reason: "" }
@@ -172,6 +179,7 @@
             return h("div", { className: "qube-form" },
                 button(raw ? "Use form" : "Edit JSON", () => {
                     if (raw && kind === "reservation" && !body.reservationId) update({ reservationId: generatedId });
+                    if (raw && kind === "receipt" && !body.operationId) update({ operationId: receiptId });
                     setRaw(!raw);
                 }),
                 raw ? h(Original, { ...props, onChange: changeBody }) : h(React.Fragment, null,
@@ -182,6 +190,13 @@
                         h(Field, { label: "Description (optional)", value: body.description, onChange: description => update({ description }) }),
                         h(Field, { label: "Unit price", type: "number", min: 0, step: "0.01", required: true, value: body.unitPrice, onChange: price => update({ unitPrice: price === "" ? null : Number(price) }) }),
                         help("Enter a nonnegative price with at most two decimal places. The product ID is generated when the product is created.")) : null,
+                    kind === "receipt" ? h(React.Fragment, null,
+                        h(Field, { label: "Receipt ID (generated)", value: body.operationId || receiptId, readOnly: true }),
+                        button("New receipt", () => update({ operationId: crypto.randomUUID() })),
+                        help("Keep this ID and the same product, quantity and reason to retry a delivery safely. Choose New receipt only for a separate delivery. This draft is kept in this browser tab across reloads."),
+                        h(Field, { label: "Quantity received", type: "number", min: 1, max: 2147483647, step: 1, required: true, value: body.quantity, onChange: quantity => update({ quantity: quantity === "" ? null : Number(quantity) }) }),
+                        h(Field, { label: "Reason", value: body.reason, required: true, maxLength: 300, placeholder: "Supplier delivery reference", onChange: reason => update({ reason }) }),
+                        help("Adds this quantity to existing physical stock. Reserved is unchanged. Initialise inventory with Set physical stock count first. Replays return the original receipt balances; GET inventory shows the current balance.")) : null,
                     kind === "stock" ? h(React.Fragment, null,
                         h(Field, { label: "Physical stock count", type: "number", min: 0, max: 2147483647, step: 1, required: true, value: body.onHand, onChange: count => update({ onHand: count === "" ? null : Number(count) }) }),
                         h(Field, { label: "Reason", value: body.reason, required: true, maxLength: 300, placeholder: "Stock count or replenishment", onChange: reason => update({ reason }) }),
@@ -197,10 +212,18 @@
         function ProductParameter({ Original, ...props }) {
             const state = useCatalogue();
             const value = props.param.get("value") || "";
+            const receipt = props.pathMethod[0] === "/api/inventory/{productId}/receipts";
+            const change = id => {
+                if (receipt) saveDraft("receipt-product", id);
+                props.onChange(props.rawParam, id);
+            };
+            React.useEffect(() => {
+                if (receipt && !value && readDraft("receipt-product")) change(readDraft("receipt-product"));
+            }, []);
             return h("tr", { className: "qube-parameter" },
                 h("td", { className: "parameters-col_name" }, h("strong", null, "Product")),
                 h("td", { className: "parameters-col_description" },
-                    h(ProductSelect, { products: state.products, value, onChange: id => props.onChange(props.rawParam, id) }),
+                    h(ProductSelect, { products: state.products, value, onChange: change }),
                     h(CatalogueStatus, { state })));
         }
 
@@ -248,6 +271,7 @@
                     const kind = path === "/api/products" ? "product"
                         : path === "/api/products/lookup" ? "lookup"
                         : path === "/api/inventory/{productId}" ? "stock"
+                        : path === "/api/inventory/{productId}/receipts" ? "receipt"
                         : path === "/api/inventory/reservations" ? "reservation"
                         : path === "/api/orders" ? "order" : null;
                     return props.isExecute && kind && ["post", "put"].includes(method)

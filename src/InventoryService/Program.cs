@@ -16,6 +16,7 @@ builder.Services.AddDbContextFactory<InventoryServiceContext>((services, options
 });
 builder.Services.AddHealthChecks().AddCheck<DatabaseHealthCheck>("database", timeout: TimeSpan.FromSeconds(5));
 builder.Services.AddScoped<StockService>();
+builder.Services.AddScoped<StockReceiptService>();
 builder.Services.AddScoped<ReservationService>();
 builder.Services.AddHttpClient<IProductClient, ProductClient>(client =>
 {
