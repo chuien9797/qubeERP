@@ -6,6 +6,7 @@ using OrderService.Clients;
 using OrderService.Data;
 using OrderService.OpenApi;
 using QubeERP.ApiDocumentation;
+using QubeERP.HttpCommunication;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddDbContextFactory<OrderServiceContext>((services, options) =>
@@ -19,13 +20,11 @@ builder.Services.AddScoped<OrderApplicationService>();
 builder.Services.AddHttpClient<IProductClient, ProductClient>(client =>
 {
     client.BaseAddress = new Uri(builder.Configuration["Services:Product"] ?? "http://localhost:5101");
-    client.Timeout = TimeSpan.FromSeconds(5);
-});
+}).ConfigureDependency("Product", retryProductLookups: true);
 builder.Services.AddHttpClient<IInventoryClient, InventoryClient>(client =>
 {
     client.BaseAddress = new Uri(builder.Configuration["Services:Inventory"] ?? "http://localhost:5102");
-    client.Timeout = TimeSpan.FromSeconds(5);
-});
+}).ConfigureDependency("Inventory");
 builder.Services.AddControllers().ConfigureApiBehaviorOptions(options =>
 {
     options.InvalidModelStateResponseFactory = context =>
