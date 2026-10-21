@@ -1,5 +1,50 @@
 using Microsoft.EntityFrameworkCore;
+using OrderService.Domain;
 
 namespace OrderService.Data;
 
-public sealed class OrderServiceContext(DbContextOptions<OrderServiceContext> options) : DbContext(options);
+public sealed class OrderServiceContext(DbContextOptions<OrderServiceContext> options) : DbContext(options)
+{
+    public DbSet<Order> Orders => Set<Order>();
+    public DbSet<OrderLine> OrderLines => Set<OrderLine>();
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        var order = modelBuilder.Entity<Order>();
+        order.ToTable("Orders", table =>
+        {
+            table.HasCheckConstraint("CK_Orders_Status", "[Status] IN ('Pending', 'Confirmed', 'Rejected', 'RequiresReview')");
+            table.HasCheckConstraint("CK_Orders_Total", "[TotalAmount] >= 0");
+            table.HasCheckConstraint("CK_Orders_Outcome", """
+                ([Status] IN ('Pending', 'Confirmed') AND [FailureCode] IS NULL AND [FailureDetailsJson] IS NULL)
+                OR ([Status] = 'Rejected' AND [FailureCode] IS NOT NULL AND
+                    (([FailureCode] = 'INSUFFICIENT_STOCK' AND [FailureDetailsJson] IS NOT NULL)
+                    OR ([FailureCode] = 'INVENTORY_INVALID_REQUEST' AND [FailureDetailsJson] IS NULL)))
+                OR ([Status] = 'RequiresReview' AND [FailureCode] IS NOT NULL)
+                """);
+            table.HasCheckConstraint("CK_Orders_FailureJson", "[FailureDetailsJson] IS NULL OR ISJSON([FailureDetailsJson]) = 1");
+            table.HasCheckConstraint("CK_Orders_Key", "LEN([IdempotencyKey]) > 0");
+        });
+        order.HasKey(value => value.Id);
+        order.Property(value => value.Id).ValueGeneratedNever();
+        order.Property(value => value.IdempotencyKey).HasMaxLength(128).UseCollation("Latin1_General_100_BIN2").IsRequired();
+        order.HasIndex(value => value.IdempotencyKey).IsUnique();
+        order.Property(value => value.RequestFingerprint).HasColumnType("char(64)").IsRequired();
+        order.Property(value => value.Status).HasMaxLength(24).IsRequired();
+        order.Property(value => value.TotalAmount).HasPrecision(18, 2);
+        order.Property(value => value.FailureCode).HasMaxLength(80);
+        order.HasMany(value => value.Lines).WithOne().HasForeignKey(value => value.OrderId).OnDelete(DeleteBehavior.Restrict);
+
+        var line = modelBuilder.Entity<OrderLine>();
+        line.ToTable("OrderLines", table =>
+        {
+            table.HasCheckConstraint("CK_OrderLines_Quantity", "[Quantity] >= 1 AND [Quantity] <= 10000");
+            table.HasCheckConstraint("CK_OrderLines_Amounts", "[UnitPrice] >= 0 AND [LineTotal] >= 0 AND [LineTotal] = [UnitPrice] * [Quantity]");
+        });
+        line.HasKey(value => new { value.OrderId, value.ProductId });
+        line.Property(value => value.Sku).HasMaxLength(50).IsRequired();
+        line.Property(value => value.Name).HasMaxLength(200).IsRequired();
+        line.Property(value => value.UnitPrice).HasPrecision(18, 2);
+        line.Property(value => value.LineTotal).HasPrecision(18, 2);
+    }
+}
