@@ -13,6 +13,8 @@ public sealed class InventoryClient(HttpClient httpClient, ILogger<InventoryClie
             using var response = await httpClient.PostAsJsonAsync("/api/inventory/reservations", request, cancellationToken);
             if ((int)response.StatusCode >= 500)
             {
+                logger.LogWarning("Inventory reservation returned HTTP {StatusCode} for {OrderId}; outcome is uncertain",
+                    (int)response.StatusCode, request.ReservationId);
                 return new InventoryResult(InventoryOutcome.Uncertain);
             }
 
@@ -72,6 +74,8 @@ public sealed class InventoryClient(HttpClient httpClient, ILogger<InventoryClie
             using var response = await httpClient.GetAsync($"/api/inventory/reservations/{reservationId}", cancellationToken);
             if ((int)response.StatusCode >= 500)
             {
+                logger.LogWarning("Inventory reservation query returned HTTP {StatusCode} for {OrderId}; outcome is uncertain",
+                    (int)response.StatusCode, reservationId);
                 return new InventoryResult(InventoryOutcome.Uncertain);
             }
 

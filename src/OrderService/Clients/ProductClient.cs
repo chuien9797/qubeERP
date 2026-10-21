@@ -31,6 +31,7 @@ public sealed class ProductClient(HttpClient httpClient, ILogger<ProductClient> 
                     || product.UnitPrice < 0 || product.UnitPrice > 9999999999999999.99m
                     || decimal.Round(product.UnitPrice, 2) != product.UnitPrice))
             {
+                logger.LogWarning("Product batch lookup returned an invalid product snapshot");
                 return null;
             }
 
@@ -38,6 +39,7 @@ public sealed class ProductClient(HttpClient httpClient, ILogger<ProductClient> 
             if (returnedIds.Length != productIds.Length || returnedIds.Distinct().Count() != returnedIds.Length
                 || !returnedIds.ToHashSet().SetEquals(productIds))
             {
+                logger.LogWarning("Product batch lookup returned IDs that do not match the request");
                 return null;
             }
 

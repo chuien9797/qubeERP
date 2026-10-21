@@ -141,12 +141,19 @@ public sealed class OrderApiTests(OrderApiFixture fixture) : IClassFixture<Order
         }
         finally { Dependencies.InventoryResponse = null; }
         var calls = Dependencies.InventoryCalls;
-        using var replay = await fixture.PostAsync(key, Item(second, 2), Item(first, 3));
-        Assert.Equal(HttpStatusCode.Conflict, replay.StatusCode);
-        var saved = (await fixture.Client.GetFromJsonAsync<OrderResponse>($"/api/orders/{id}"))!;
-        Assert.Equal("Rejected", saved.Status);
-        Assert.Equal(1, Assert.Single(saved.Shortfalls).Available);
-        Assert.Equal(calls, Dependencies.InventoryCalls);
+        var productCalls = Dependencies.ProductCalls;
+        Dependencies.ProductResponse = (_, _) => throw new HttpRequestException("Product unavailable during rejected replay");
+        try
+        {
+            using var replay = await fixture.PostAsync(key, Item(second, 2), Item(first, 3));
+            Assert.Equal(HttpStatusCode.Conflict, replay.StatusCode);
+            var saved = (await fixture.Client.GetFromJsonAsync<OrderResponse>($"/api/orders/{id}"))!;
+            Assert.Equal("Rejected", saved.Status);
+            Assert.Equal(1, Assert.Single(saved.Shortfalls).Available);
+            Assert.Equal(calls, Dependencies.InventoryCalls);
+            Assert.Equal(productCalls, Dependencies.ProductCalls);
+        }
+        finally { Dependencies.ProductResponse = null; }
     }
 
     [Fact]
@@ -182,16 +189,51 @@ public sealed class OrderApiTests(OrderApiFixture fixture) : IClassFixture<Order
         Assert.Equal(calls, Dependencies.InventoryCalls);
     }
 
-    [Fact]
-    public async Task ProductFailureDoesNotPersistAnOrder()
+    [Theory]
+    [InlineData("disconnect")]
+    [InlineData("timeout")]
+    [InlineData("server-error")]
+    public async Task ProductFailureDoesNotPersistAnOrder(string failure)
     {
         var key = NewKey();
-        Dependencies.ProductResponse = (_, _) => throw new HttpRequestException("Connection lost");
+        var inventoryCalls = Dependencies.InventoryCalls;
+        var productCalls = Dependencies.ProductCalls;
+        Dependencies.ProductResponse = (_, _) => failure switch
+        {
+            "disconnect" => throw new HttpRequestException("Connection lost"),
+            "timeout" => throw new TaskCanceledException("Dependency timeout"),
+            _ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable))
+        };
         try
         {
             using var response = await fixture.PostAsync(key, Item(Guid.NewGuid()));
             Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
             await AssertAbsentAsync(key);
+            Assert.Equal(inventoryCalls, Dependencies.InventoryCalls);
+            Assert.Equal(productCalls + 3, Dependencies.ProductCalls);
+        }
+        finally { Dependencies.ProductResponse = null; }
+    }
+
+    [Fact]
+    public async Task TransientProductFailureRecoversBeforePersistingOneOrderAndReservingOnce()
+    {
+        var product = Dependencies.AddProduct();
+        var key = NewKey();
+        var attempts = 0;
+        var inventoryCalls = Dependencies.InventoryCalls;
+        Dependencies.ProductResponse = async (request, token) => ++attempts < 3
+            ? new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
+            : await Dependencies.LookupAsync(request, token);
+        try
+        {
+            using var response = await fixture.PostAsync(key, Item(product));
+            Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+            Assert.Equal(3, attempts);
+            Assert.Equal(inventoryCalls + 1, Dependencies.InventoryCalls);
+            await using var database = fixture.CreateContext();
+            var order = Assert.Single(await database.Orders.Where(value => value.IdempotencyKey == key).ToArrayAsync());
+            Assert.Equal("Confirmed", order.Status);
         }
         finally { Dependencies.ProductResponse = null; }
     }
