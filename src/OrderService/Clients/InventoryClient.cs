@@ -64,12 +64,72 @@ public sealed class InventoryClient(HttpClient httpClient, ILogger<InventoryClie
         }
     }
 
-    private static bool ValidShortfalls(StockShortfall[]? shortfalls, ReservationItemRequest[] items)
+    public async Task<InventoryResult> GetAsync(Guid reservationId, IReadOnlyList<ReservationItemRequest> items,
+        CancellationToken cancellationToken)
     {
-        return shortfalls is { Length: > 0 } && shortfalls.All(shortfall => shortfall is not null
+        try
+        {
+            using var response = await httpClient.GetAsync($"/api/inventory/reservations/{reservationId}", cancellationToken);
+            if ((int)response.StatusCode >= 500)
+            {
+                return new InventoryResult(InventoryOutcome.Uncertain);
+            }
+
+            if (response.StatusCode == HttpStatusCode.NotFound)
+            {
+                var problem = await response.Content.ReadFromJsonAsync<InventoryProblem>(cancellationToken);
+                return problem?.ErrorCode == "RESERVATION_NOT_FOUND" && problem.ReservationId == reservationId
+                    ? new InventoryResult(InventoryOutcome.NotFound)
+                    : new InventoryResult(InventoryOutcome.UnexpectedResponse);
+            }
+
+            if (response.StatusCode != HttpStatusCode.OK)
+            {
+                return new InventoryResult(InventoryOutcome.UnexpectedResponse);
+            }
+
+            var reservation = await response.Content.ReadFromJsonAsync<ReservationResponse>(cancellationToken);
+            if (reservation is null || reservation.ReservationId != reservationId)
+            {
+                return new InventoryResult(InventoryOutcome.UnexpectedResponse);
+            }
+
+            if (reservation.Status == "Reserved" && reservation.FailureCode is null && reservation.Shortfalls is { Count: 0 })
+            {
+                return new InventoryResult(InventoryOutcome.Reserved);
+            }
+
+            if (reservation.Status == "Rejected" && reservation.FailureCode == "INSUFFICIENT_STOCK"
+                && ValidShortfalls(reservation.Shortfalls, items))
+            {
+                return new InventoryResult(InventoryOutcome.Rejected, reservation.Shortfalls);
+            }
+
+            return new InventoryResult(InventoryOutcome.UnexpectedResponse);
+        }
+        catch (HttpRequestException exception)
+        {
+            logger.LogWarning(exception, "Inventory reservation query failed for {OrderId}", reservationId);
+            return new InventoryResult(InventoryOutcome.Uncertain);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            logger.LogWarning("Inventory reservation query timed out for {OrderId}", reservationId);
+            return new InventoryResult(InventoryOutcome.Uncertain);
+        }
+        catch (JsonException exception)
+        {
+            logger.LogWarning(exception, "Inventory reservation query returned invalid JSON for {OrderId}", reservationId);
+            return new InventoryResult(InventoryOutcome.UnexpectedResponse);
+        }
+    }
+
+    private static bool ValidShortfalls(IReadOnlyList<StockShortfall>? shortfalls, IReadOnlyList<ReservationItemRequest> items)
+    {
+        return shortfalls is { Count: > 0 } && shortfalls.All(shortfall => shortfall is not null
             && shortfall.Available >= 0 && shortfall.Available < shortfall.Requested
             && items.Any(item => item.ProductId == shortfall.ProductId && item.Quantity == shortfall.Requested))
-            && shortfalls.Select(shortfall => shortfall.ProductId).Distinct().Count() == shortfalls.Length;
+            && shortfalls.Select(shortfall => shortfall.ProductId).Distinct().Count() == shortfalls.Count;
     }
 
     private sealed record InventoryProblem(string? ErrorCode, Guid? ReservationId, StockShortfall[]? Shortfalls);

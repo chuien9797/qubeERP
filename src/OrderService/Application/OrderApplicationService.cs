@@ -84,18 +84,12 @@ public sealed class OrderApplicationService(
             return Replay(existing, fingerprint);
         }
 
-        await RecordAttemptAsync(order.Id, cancellationToken);
-        var result = await inventory.ReserveAsync(new CreateReservationRequest
+        if (await RecordAttemptAsync(order.Id, cancellationToken))
         {
-            ReservationId = order.Id,
-            Items = order.Lines.Select(line => new ReservationItemRequest { ProductId = line.ProductId, Quantity = line.Quantity }).ToArray()
-        }, cancellationToken);
-        logger.LogInformation("Inventory returned {Outcome} for order {OrderId}", result.Outcome, order.Id);
-        if (result.Outcome is InventoryOutcome.InvalidRequest or InventoryOutcome.PayloadConflict or InventoryOutcome.UnexpectedResponse)
-        {
-            logger.LogError("Inventory contract failure {Outcome} for order {OrderId}", result.Outcome, order.Id);
+            var result = await inventory.ReserveAsync(ToReservationRequest(order), cancellationToken);
+            await ApplyOutcomeAsync(order.Id, result, cancellationToken);
         }
-        await ApplyOutcomeAsync(order.Id, result, cancellationToken);
+
         return new OrderResult(await GetAsync(order.Id, cancellationToken), IsNew: true);
     }
 
@@ -113,16 +107,22 @@ public sealed class OrderApplicationService(
             .SingleOrDefaultAsync(value => value.IdempotencyKey == key, cancellationToken);
     }
 
-    private async Task RecordAttemptAsync(Guid id, CancellationToken cancellationToken)
+    private async Task<bool> RecordAttemptAsync(Guid id, CancellationToken cancellationToken)
     {
         await using var database = await contexts.CreateDbContextAsync(cancellationToken);
         var now = DateTimeOffset.UtcNow;
-        await database.Orders.Where(value => value.Id == id && value.Status == "Pending")
-            .ExecuteUpdateAsync(update => update.SetProperty(value => value.LastAttemptAtUtc, now), cancellationToken);
+        return await database.Orders.Where(value => value.Id == id && value.Status == "Pending")
+            .ExecuteUpdateAsync(update => update.SetProperty(value => value.LastAttemptAtUtc, now), cancellationToken) > 0;
     }
 
     private async Task ApplyOutcomeAsync(Guid id, InventoryResult result, CancellationToken cancellationToken)
     {
+        logger.LogInformation("Inventory returned {Outcome} for order {OrderId}", result.Outcome, id);
+        if (result.Outcome is InventoryOutcome.InvalidRequest or InventoryOutcome.PayloadConflict or InventoryOutcome.UnexpectedResponse)
+        {
+            logger.LogError("Inventory contract failure {Outcome} for order {OrderId}", result.Outcome, id);
+        }
+
         if (result.Outcome == InventoryOutcome.Uncertain)
         {
             return;
@@ -155,6 +155,16 @@ public sealed class OrderApplicationService(
         string.Equals(order.RequestFingerprint, fingerprint, StringComparison.Ordinal)
             ? new OrderResult(ToResponse(order))
             : new OrderResult(ToResponse(order), ErrorCode: "IDEMPOTENCY_KEY_CONFLICT");
+
+    private static CreateReservationRequest ToReservationRequest(Order order) => new()
+    {
+        ReservationId = order.Id,
+        Items = order.Lines.Select(line => new ReservationItemRequest
+        {
+            ProductId = line.ProductId,
+            Quantity = line.Quantity
+        }).ToArray()
+    };
 
     private static OrderResponse ToResponse(Order order) => new(order.Id, order.Status, order.TotalAmount,
         order.Lines.OrderBy(line => line.ProductId.ToString("D"), StringComparer.Ordinal).Select(line =>

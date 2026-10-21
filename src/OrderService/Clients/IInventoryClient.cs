@@ -5,6 +5,7 @@ namespace OrderService.Clients;
 public interface IInventoryClient
 {
     Task<InventoryResult> ReserveAsync(CreateReservationRequest request, CancellationToken cancellationToken);
+    Task<InventoryResult> GetAsync(Guid reservationId, IReadOnlyList<ReservationItemRequest> items, CancellationToken cancellationToken);
 }
 
 public enum InventoryOutcome
@@ -14,7 +15,8 @@ public enum InventoryOutcome
     InvalidRequest,
     PayloadConflict,
     UnexpectedResponse,
-    Uncertain
+    Uncertain,
+    NotFound
 }
 
 public sealed record InventoryResult(InventoryOutcome Outcome, IReadOnlyList<StockShortfall>? Shortfalls = null);
