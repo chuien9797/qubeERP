@@ -46,7 +46,12 @@ builder.Services.AddProblemDetails(options => options.CustomizeProblemDetails = 
 });
 
 var app = builder.Build();
-app.UseExceptionHandler();
+app.UseExceptionHandler(new ExceptionHandlerOptions
+{
+    StatusCodeSelector = exception => exception is BadHttpRequestException badRequest
+        ? badRequest.StatusCode
+        : StatusCodes.Status500InternalServerError
+});
 app.UseStatusCodePages();
 if (app.Environment.IsDevelopment())
 {

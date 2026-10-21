@@ -2,6 +2,8 @@
 **/obj/
 .appdata/
 .env
+.env.*
+!.env.example
 TestResults/
 .vs/
 .idea/

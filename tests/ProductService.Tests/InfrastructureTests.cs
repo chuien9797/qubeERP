@@ -1,4 +1,6 @@
 using System.Net;
+using System.Net.Http.Json;
+using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
@@ -29,6 +31,27 @@ public sealed class InfrastructureTests
         using var client = factory.CreateClient();
         using var response = await client.GetAsync("/swagger/v1/swagger.json");
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Theory]
+    [InlineData("/api/products")]
+    [InlineData("/api/products/lookup")]
+    public async Task OversizedRequestsReturn413WithoutExceptionDetails(string path)
+    {
+        await using var factory = new ApiFactory(true);
+        factory.UseKestrel(0);
+        using var client = factory.CreateClient();
+        using var response = await client.PostAsJsonAsync(path, new { padding = new string('x', 70000) });
+
+        Assert.Equal(HttpStatusCode.RequestEntityTooLarge, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+        using var problem = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.Equal(413, problem.RootElement.GetProperty("status").GetInt32());
+        Assert.Equal("REQUEST_TOO_LARGE", problem.RootElement.GetProperty("errorCode").GetString());
+        Assert.False(string.IsNullOrWhiteSpace(problem.RootElement.GetProperty("traceId").GetString()));
+        Assert.False(problem.RootElement.TryGetProperty("exception", out _));
+        Assert.False(problem.RootElement.TryGetProperty("detail", out _));
+        Assert.False(problem.RootElement.TryGetProperty("stackTrace", out _));
     }
 
     private sealed class ApiFactory(bool ready) : WebApplicationFactory<Program>

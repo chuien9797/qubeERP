@@ -3,5 +3,6 @@
 .git
 .appdata
 .env
+.env.*
 TestResults
 *.docx
