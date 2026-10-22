@@ -74,6 +74,61 @@ public sealed class ReservationService
         throw new InvalidOperationException("Reservation retry loop ended without an outcome.");
     }
 
+    public async Task<ReleaseResult> ReleaseAsync(Guid id, string reason, CancellationToken cancellationToken)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                return await ReleaseInTransactionAsync(id, reason, cancellationToken);
+            }
+            catch (Exception exception) when (IsDeadlock(exception))
+            {
+                if (attempt == 2)
+                {
+                    logger.LogWarning(exception, "Release {ReservationId} exhausted its two deadlock retries", id);
+                    return new ReleaseResult(ReleaseOutcome.Unavailable);
+                }
+                await Task.Delay(TimeSpan.FromMilliseconds(50 * (attempt + 1)), cancellationToken);
+            }
+        }
+    }
+
+    private async Task<ReleaseResult> ReleaseInTransactionAsync(Guid id, string reason, CancellationToken cancellationToken)
+    {
+        await using var database = new InventoryServiceContext(transactionOptions);
+        await using var transaction = await database.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);
+        var now = DateTimeOffset.UtcNow;
+        var changed = await database.Reservations.Where(value => value.Id == id && value.Status == "Reserved")
+            .ExecuteUpdateAsync(update => update.SetProperty(value => value.Status, "Released")
+                .SetProperty(value => value.UpdatedAtUtc, now), cancellationToken);
+        if (changed == 0)
+        {
+            var existing = await database.Reservations.AsNoTracking().SingleOrDefaultAsync(value => value.Id == id, cancellationToken);
+            return existing is null ? new ReleaseResult(ReleaseOutcome.NotFound)
+                : existing.Status == "Released" ? new ReleaseResult(ReleaseOutcome.Released, ToResponse(existing))
+                : new ReleaseResult(ReleaseOutcome.Conflict);
+        }
+
+        var lines = (await database.ReservationLines.AsNoTracking().Where(value => value.ReservationId == id)
+            .ToArrayAsync(cancellationToken)).OrderBy(value => value.ProductId.ToString("D"), StringComparer.Ordinal).ToArray();
+        if (lines.Length == 0) throw new InvalidOperationException("A reserved reservation has no persisted lines.");
+        foreach (var line in lines)
+        {
+            var balance = await ReservationStockQueries.ReleaseAsync(database, line.ProductId, line.Quantity, now, cancellationToken);
+            database.StockMovements.Add(new StockMovement
+            {
+                OperationId = id, ProductId = line.ProductId, MovementType = "Release",
+                OnHandDelta = 0, ReservedDelta = -line.Quantity,
+                OnHandAfter = balance.OnHand, ReservedAfter = balance.Reserved,
+                Reason = reason, CreatedAtUtc = now
+            });
+        }
+        await database.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return new ReleaseResult(ReleaseOutcome.Released, new ReservationResponse(id, "Released", null, []));
+    }
+
     private async Task<ReservationResult> ReserveInTransactionAsync(
         Guid id, ReservationItemRequest[] items, string fingerprint, CancellationToken cancellationToken)
     {
@@ -159,13 +214,14 @@ public sealed class ReservationService
         }
 
         var response = ToResponse(reservation);
-        var outcome = response.Status == "Reserved" ? ReservationOutcome.Reserved : ReservationOutcome.Rejected;
+        // Released/Consumed are successful original reservations, never shortage outcomes.
+        var outcome = response.Status == "Rejected" ? ReservationOutcome.Rejected : ReservationOutcome.Reserved;
         return new ReservationResult(outcome, response, IsReplay: true);
     }
 
     private static ReservationResponse ToResponse(Reservation reservation)
     {
-        if (reservation.Status is not ("Reserved" or "Rejected"))
+        if (reservation.Status is not ("Reserved" or "Rejected" or "Released" or "Consumed"))
         {
             throw new InvalidOperationException("A committed reservation must have a terminal outcome.");
         }

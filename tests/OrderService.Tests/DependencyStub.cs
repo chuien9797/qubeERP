@@ -21,6 +21,7 @@ public sealed class DependencyStub : HttpMessageHandler
     public Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>>? ProductResponse { get; set; }
     public Func<CreateReservationRequest, CancellationToken, Task<HttpResponseMessage>>? InventoryResponse { get; set; }
     public Func<Guid, CancellationToken, Task<HttpResponseMessage>>? InventoryQueryResponse { get; set; }
+    public Func<Guid, string, CancellationToken, Task<HttpResponseMessage>>? ReleaseResponse { get; set; }
 
     public Guid AddProduct(decimal price = 12.50m, bool active = true)
     {
@@ -59,6 +60,14 @@ public sealed class DependencyStub : HttpMessageHandler
             var candidate = new ReservationResponse(reservation.ReservationId!.Value, "Reserved", null, []);
             var saved = Outcomes.GetOrAdd(candidate.ReservationId, candidate);
             return Json(ReferenceEquals(saved, candidate) ? HttpStatusCode.Created : HttpStatusCode.OK, saved);
+        }
+
+        if (request.Method == HttpMethod.Post && request.RequestUri.AbsolutePath.EndsWith("/release", StringComparison.Ordinal))
+        {
+            var id = Guid.Parse(request.RequestUri.Segments[^2].TrimEnd('/'));
+            var release = (await request.Content!.ReadFromJsonAsync<ReleaseReservationRequest>(cancellationToken))!;
+            return ReleaseResponse is null ? new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
+                : await ReleaseResponse(id, release.Reason!, cancellationToken);
         }
 
         if (request.Method == HttpMethod.Get && request.RequestUri.AbsolutePath.StartsWith("/api/inventory/reservations/", StringComparison.Ordinal))

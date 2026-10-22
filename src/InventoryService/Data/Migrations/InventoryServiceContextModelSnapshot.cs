@@ -55,9 +55,9 @@ namespace InventoryService.Data.Migrations
                         {
                             t.HasCheckConstraint("CK_Reservations_FailureJson", "[FailureDetailsJson] IS NULL OR ISJSON([FailureDetailsJson]) = 1");
 
-                            t.HasCheckConstraint("CK_Reservations_Outcome", "([Status] = 'Rejected' AND [FailureCode] IS NOT NULL\n    AND [FailureCode] = 'INSUFFICIENT_STOCK' AND [FailureDetailsJson] IS NOT NULL)\nOR ([Status] IN ('Processing', 'Reserved') AND [FailureCode] IS NULL AND [FailureDetailsJson] IS NULL)");
+                            t.HasCheckConstraint("CK_Reservations_Outcome", "([Status] = 'Rejected' AND [FailureCode] IS NOT NULL\n    AND [FailureCode] = 'INSUFFICIENT_STOCK' AND [FailureDetailsJson] IS NOT NULL)\nOR ([Status] IN ('Processing', 'Reserved', 'Released', 'Consumed') AND [FailureCode] IS NULL AND [FailureDetailsJson] IS NULL)");
 
-                            t.HasCheckConstraint("CK_Reservations_Status", "[Status] IN ('Processing', 'Reserved', 'Rejected')");
+                            t.HasCheckConstraint("CK_Reservations_Status", "[Status] IN ('Processing', 'Reserved', 'Rejected', 'Released', 'Consumed')");
                         });
                 });
 
@@ -131,8 +131,8 @@ namespace InventoryService.Data.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("Reason")
-                        .HasMaxLength(300)
-                        .HasColumnType("nvarchar(300)");
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
 
                     b.Property<int>("ReservedAfter")
                         .HasColumnType("int");
@@ -158,7 +158,9 @@ namespace InventoryService.Data.Migrations
 
                             t.HasCheckConstraint("CK_StockMovements_Receipt", "[MovementType] <> 'StockReceipt' OR ([OnHandDelta] > 0 AND [ReservedDelta] = 0 AND [Reason] IS NOT NULL AND LEN(LTRIM(RTRIM([Reason]))) > 0)");
 
-                            t.HasCheckConstraint("CK_StockMovements_Type", "[MovementType] IN ('InitialStock', 'StockSet', 'Reserve', 'StockReceipt')");
+                            t.HasCheckConstraint("CK_StockMovements_Release", "[MovementType] <> 'Release' OR ([OnHandDelta] = 0 AND [ReservedDelta] < 0 AND [Reason] IS NOT NULL AND LEN(LTRIM(RTRIM([Reason]))) > 0)");
+
+                            t.HasCheckConstraint("CK_StockMovements_Type", "[MovementType] IN ('InitialStock', 'StockSet', 'Reserve', 'StockReceipt', 'Release')");
                         });
                 });
 

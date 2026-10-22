@@ -13,6 +13,7 @@ using Xunit;
 using InventoryContext = InventoryApi::InventoryService.Data.InventoryServiceContext;
 using InventoryReservationService = InventoryApi::InventoryService.Application.ReservationService;
 using ReservationOutcome = InventoryApi::InventoryService.Application.ReservationOutcome;
+using ReleaseOutcome = InventoryApi::InventoryService.Application.ReleaseOutcome;
 using StockItem = InventoryApi::InventoryService.Domain.StockItem;
 
 namespace OrderService.Tests;
@@ -77,6 +78,18 @@ public sealed class RecoveryFixture : IAsyncLifetime
             : DependencyStub.Json(HttpStatusCode.OK, saved);
     }
 
+    public async Task<HttpResponseMessage> ReleaseAsync(Guid id, string reason, CancellationToken cancellationToken)
+    {
+        var result = await reservations.ReleaseAsync(id, reason, cancellationToken);
+        return result.Outcome switch
+        {
+            ReleaseOutcome.Released => DependencyStub.Json(HttpStatusCode.OK, result.Reservation),
+            ReleaseOutcome.NotFound => new HttpResponseMessage(HttpStatusCode.NotFound),
+            ReleaseOutcome.Conflict => new HttpResponseMessage(HttpStatusCode.Conflict),
+            _ => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
+        };
+    }
+
     public Task<HttpResponseMessage> PostAsync(string key, params OrderItemRequest[] items)
     {
         var request = new HttpRequestMessage(HttpMethod.Post, "/api/orders") { Content = JsonContent.Create(new CreateOrderRequest { Items = items }) };
@@ -94,6 +107,7 @@ public sealed class RecoveryFixture : IAsyncLifetime
         Dependencies.ProductResponse = null;
         Dependencies.InventoryResponse = ReserveAsync;
         Dependencies.InventoryQueryResponse = QueryAsync;
+        Dependencies.ReleaseResponse = ReleaseAsync;
     }
 
     public async Task DisposeAsync()

@@ -136,5 +136,55 @@ public sealed class InventoryClient(HttpClient httpClient, ILogger<InventoryClie
             && shortfalls.Select(shortfall => shortfall.ProductId).Distinct().Count() == shortfalls.Count;
     }
 
+    public Task<InventoryResult> ReleaseAsync(Guid reservationId, string reason, CancellationToken cancellationToken) =>
+        SendReleaseAsync(reservationId, reason, cancellationToken);
+
+    public Task<InventoryResult> GetReleaseStatusAsync(Guid reservationId, CancellationToken cancellationToken) =>
+        SendReleaseAsync(reservationId, null, cancellationToken);
+
+    private async Task<InventoryResult> SendReleaseAsync(Guid id, string? reason, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var response = reason is null
+                ? await httpClient.GetAsync($"/api/inventory/reservations/{id}", cancellationToken)
+                : await httpClient.PostAsJsonAsync($"/api/inventory/reservations/{id}/release",
+                    new ReleaseReservationRequest { Reason = reason }, cancellationToken);
+            if ((int)response.StatusCode >= 500 || response.StatusCode == HttpStatusCode.RequestTimeout)
+                return new InventoryResult(InventoryOutcome.Uncertain);
+            if (response.StatusCode == HttpStatusCode.Conflict)
+                return new InventoryResult(InventoryOutcome.ReleaseConflict);
+            if (response.StatusCode == HttpStatusCode.NotFound)
+                return new InventoryResult(InventoryOutcome.NotFound);
+            if (response.StatusCode != HttpStatusCode.OK)
+                return new InventoryResult(InventoryOutcome.UnexpectedResponse);
+            var reservation = await response.Content.ReadFromJsonAsync<ReservationResponse>(cancellationToken);
+            if (reservation is null || reservation.ReservationId != id || reservation.FailureCode is not null
+                || reservation.Shortfalls is not { Count: 0 })
+                return new InventoryResult(InventoryOutcome.UnexpectedResponse);
+            return new InventoryResult(reservation.Status switch
+            {
+                "Released" => InventoryOutcome.Released,
+                "Reserved" when reason is null => InventoryOutcome.Reserved,
+                "Consumed" => InventoryOutcome.ReleaseConflict,
+                _ => InventoryOutcome.UnexpectedResponse
+            });
+        }
+        catch (HttpRequestException exception)
+        {
+            logger.LogWarning(exception, "Inventory release request failed for {OrderId}", id);
+            return new InventoryResult(InventoryOutcome.Uncertain);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return new InventoryResult(InventoryOutcome.Uncertain);
+        }
+        catch (JsonException exception)
+        {
+            logger.LogWarning(exception, "Inventory release returned invalid JSON for {OrderId}", id);
+            return new InventoryResult(InventoryOutcome.UnexpectedResponse);
+        }
+    }
+
     private sealed record InventoryProblem(string? ErrorCode, Guid? ReservationId, StockShortfall[]? Shortfalls);
 }

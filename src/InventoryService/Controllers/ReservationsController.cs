@@ -48,6 +48,29 @@ public sealed class ReservationsController(ReservationService reservations) : Co
         }
     }
 
+    [HttpPost("{reservationId:guid}/release")]
+    [EndpointSummary("Release all stock held by a reservation.")]
+    [EndpointDescription("Uses the original persisted lines and reservation ID. Released replays return 200 without another movement; Rejected or Consumed returns 409. OnHand is unchanged. The first committed release reason is retained in the ledger.")]
+    [ProducesResponseType<ReservationResponse>(200)]
+    [ProducesResponseType<ValidationProblemDetails>(400)]
+    [ProducesResponseType<ProblemDetails>(404)]
+    [ProducesResponseType<ProblemDetails>(409)]
+    [ProducesResponseType<ProblemDetails>(503)]
+    public async Task<ActionResult<ReservationResponse>> Release(Guid reservationId, ReleaseReservationRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (reservationId == Guid.Empty)
+            return ReservationProblem(400, "Reservation ID must not be empty.", "INVALID_RESERVATION", reservationId);
+        var result = await reservations.ReleaseAsync(reservationId, request.Reason!, cancellationToken);
+        return result.Outcome switch
+        {
+            ReleaseOutcome.Released => Ok(result.Reservation),
+            ReleaseOutcome.NotFound => ReservationProblem(404, "Reservation not found.", "RESERVATION_NOT_FOUND", reservationId),
+            ReleaseOutcome.Conflict => ReservationProblem(409, "Only a Reserved reservation may be released.", "RESERVATION_NOT_RELEASABLE", reservationId),
+            _ => ReservationProblem(503, "Release outcome is uncertain. Retry the same reservation ID.", "RELEASE_UNAVAILABLE", reservationId)
+        };
+    }
+
     [HttpGet("{reservationId:guid}")]
     [EndpointSummary("Check a reservation's result.")]
     [EndpointDescription("Choose a recent reservation in Swagger or enter a known reservation ID. For an order reservation, use its order ID. Reading a reservation does not change stock.")]

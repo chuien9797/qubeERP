@@ -7,6 +7,7 @@ public sealed record OrderLineResponse(Guid ProductId, string Sku, string Name, 
 public sealed record OrderResponse(
     Guid OrderId, string Status, decimal TotalAmount, IReadOnlyList<OrderLineResponse> Lines,
     string? FailureCode, IReadOnlyList<StockShortfall> Shortfalls,
-    DateTimeOffset CreatedAtUtc, DateTimeOffset UpdatedAtUtc, DateTimeOffset? LastAttemptAtUtc);
+    DateTimeOffset CreatedAtUtc, DateTimeOffset UpdatedAtUtc, DateTimeOffset? LastAttemptAtUtc,
+    string? CancellationReason = null);
 
 public sealed record PendingOrderResponse(Guid OrderId, string Status, string StatusUrl);
