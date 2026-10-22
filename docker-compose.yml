@@ -2,13 +2,13 @@ name: qubeerp
 
 services:
   sqlserver:
-    image: mcr.microsoft.com/mssql/server:2022-latest
+    image: mcr.microsoft.com/mssql/server:2022-latest@sha256:cf8f0ab2ebe61feec2eed2629061a07d247f791c2a8ddda74a4ac9f06a291718
     environment:
       ACCEPT_EULA: "Y"
       MSSQL_PID: Developer
       MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:?Set MSSQL_SA_PASSWORD in .env}
     ports:
-      - "127.0.0.1:14330:1433"
+      - "127.0.0.1:${SQL_PORT:-14330}:1433"
     volumes:
       - sql-data:/var/opt/mssql
     healthcheck:
@@ -19,7 +19,7 @@ services:
       start_period: 30s
 
   database-setup:
-    image: mcr.microsoft.com/mssql/server:2022-latest
+    image: mcr.microsoft.com/mssql/server:2022-latest@sha256:cf8f0ab2ebe61feec2eed2629061a07d247f791c2a8ddda74a4ac9f06a291718
     entrypoint: ["/bin/bash", "/setup/Initialize-Databases.sh"]
     environment:
       MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:?Run scripts/Initialize-LocalEnvironment.ps1}
@@ -41,7 +41,7 @@ services:
       ASPNETCORE_ENVIRONMENT: Development
       ConnectionStrings__Database: Server=sqlserver;Database=ProductDb;User Id=qube_product;Password=${PRODUCT_DB_PASSWORD:?Run scripts/Initialize-LocalEnvironment.ps1};TrustServerCertificate=True;Connect Timeout=5
     ports:
-      - "127.0.0.1:5101:8080"
+      - "127.0.0.1:${PRODUCT_PORT:-5101}:8080"
     depends_on:
       database-setup:
         condition: service_completed_successfully
@@ -55,7 +55,7 @@ services:
       ConnectionStrings__Database: Server=sqlserver;Database=InventoryDb;User Id=qube_inventory;Password=${INVENTORY_DB_PASSWORD:?Run scripts/Initialize-LocalEnvironment.ps1};TrustServerCertificate=True;Connect Timeout=5
       Services__Product: http://product-service:8080
     ports:
-      - "127.0.0.1:5102:8080"
+      - "127.0.0.1:${INVENTORY_PORT:-5102}:8080"
     depends_on:
       database-setup:
         condition: service_completed_successfully
@@ -73,20 +73,20 @@ services:
       RabbitMQ__UserName: ${RABBITMQ_USERNAME:-qubeerp}
       RabbitMQ__Password: ${RABBITMQ_PASSWORD:?Run scripts/Initialize-LocalEnvironment.ps1}
     ports:
-      - "127.0.0.1:5103:8080"
+      - "127.0.0.1:${ORDER_PORT:-5103}:8080"
     depends_on:
       database-setup:
         condition: service_completed_successfully
 
   rabbitmq:
-    image: rabbitmq:4.2-management
+    image: rabbitmq:4.2-management@sha256:7ce498399b07a9594a3d23e5a7920edf233edb888e82503c35357c23cefc2e61
     hostname: qubeerp-rabbitmq
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:-qubeerp}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?Run scripts/Initialize-LocalEnvironment.ps1}
     ports:
-      - "127.0.0.1:5672:5672"
-      - "127.0.0.1:15672:15672"
+      - "127.0.0.1:${RABBITMQ_PORT:-5672}:5672"
+      - "127.0.0.1:${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
     volumes:
       - rabbitmq-data:/var/lib/rabbitmq
     healthcheck:

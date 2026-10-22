@@ -237,7 +237,7 @@ public sealed class RabbitMqFixture : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        Container = new ContainerBuilder("rabbitmq:4.2-management")
+        Container = new ContainerBuilder("rabbitmq:4.2-management@sha256:7ce498399b07a9594a3d23e5a7920edf233edb888e82503c35357c23cefc2e61")
             .WithEnvironment("RABBITMQ_DEFAULT_USER", "qubeerp-test").WithEnvironment("RABBITMQ_DEFAULT_PASS", password)
             .WithPortBinding(5672, true)
             .WithWaitStrategy(Wait.ForUnixContainer().UntilInternalTcpPortIsAvailable(5672))

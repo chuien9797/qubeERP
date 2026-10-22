@@ -15,7 +15,7 @@ public sealed class DatabaseInfrastructureTests
     [Trait("Category", "Integration")]
     public async Task ServiceLoginsMigrateTheirOwnDatabasesAndCannotReadOtherServiceDatabases()
     {
-        await using var sql = new MsSqlBuilder("mcr.microsoft.com/mssql/server:2022-latest")
+        await using var sql = new MsSqlBuilder("mcr.microsoft.com/mssql/server:2022-latest@sha256:cf8f0ab2ebe61feec2eed2629061a07d247f791c2a8ddda74a4ac9f06a291718")
             .Build();
         await sql.StartAsync();
         var credentials = new[]

@@ -36,8 +36,8 @@ jobs:
         run: |
           docker version
           test "$(docker info --format '{{.OSType}}')" = linux
-          docker pull mcr.microsoft.com/mssql/server:2022-latest
-          docker pull rabbitmq:4.2-management
+          docker pull mcr.microsoft.com/mssql/server:2022-latest@sha256:cf8f0ab2ebe61feec2eed2629061a07d247f791c2a8ddda74a4ac9f06a291718
+          docker pull rabbitmq:4.2-management@sha256:7ce498399b07a9594a3d23e5a7920edf233edb888e82503c35357c23cefc2e61
 
       - name: Restore dependencies
         run: dotnet restore QubeERP.slnx --configfile NuGet.Config
@@ -51,7 +51,7 @@ jobs:
           --filter 'Category!=Integration'
           --logger trx --results-directory TestResults/unit
 
-      - name: Run SQL Server integration tests
+      - name: Run SQL Server and RabbitMQ integration tests
         run: >-
           dotnet test QubeERP.slnx --configuration Release --no-build --no-restore -m:1
           --filter 'Category=Integration'

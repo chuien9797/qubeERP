@@ -1,0 +1,67 @@
+@products = http://localhost:5101/api/products
+@inventory = http://localhost:5102/api/inventory
+@orders = http://localhost:5103/api/orders
+@skuSuffix = change-before-each-demo
+@firstProductId = paste-first-product-id
+@secondProductId = paste-second-product-id
+@orderKey = replace-with-a-new-guid
+@rejectedKey = replace-with-another-new-guid
+@receiptId = replace-with-a-third-new-guid
+
+### Create first product (201); copy response id into firstProductId
+POST {{products}}
+Content-Type: application/json
+
+{"sku":"MOUSE-{{skuSuffix}}","name":"Wireless Mouse","unitPrice":25.50}
+
+### Create second product (201); copy response id into secondProductId
+POST {{products}}
+Content-Type: application/json
+
+{"sku":"PAD-{{skuSuffix}}","name":"Mouse Pad","unitPrice":10.00}
+
+### List products (200)
+GET {{products}}
+
+### Initialise first stock count (200)
+PUT {{inventory}}/{{firstProductId}}
+Content-Type: application/json
+
+{"onHand":20,"reason":"Opening stock count"}
+
+### Initialise second stock count (200)
+PUT {{inventory}}/{{secondProductId}}
+Content-Type: application/json
+
+{"onHand":10,"reason":"Opening stock count"}
+
+### Create multi-item order (201 Confirmed); repeat unchanged for 200 replay
+POST {{orders}}
+Content-Type: application/json
+Idempotency-Key: {{orderKey}}
+
+{"items":[{"productId":"{{firstProductId}}","quantity":3},{"productId":"{{secondProductId}}","quantity":2}]}
+
+### First product: OnHand 20, Reserved 3, Available 17
+GET {{inventory}}/{{firstProductId}}
+
+### Ledger: InitialStock then Reserve; order ID is the Reserve operation ID
+GET {{inventory}}/{{firstProductId}}/movements
+
+### Reject entire order (409); no partial hold on either item
+POST {{orders}}
+Content-Type: application/json
+Idempotency-Key: {{rejectedKey}}
+
+{"items":[{"productId":"{{firstProductId}}","quantity":18},{"productId":"{{secondProductId}}","quantity":1}]}
+
+### Receive 5 units (201); repeat unchanged for 200 without adding twice
+POST {{inventory}}/{{firstProductId}}/receipts
+Content-Type: application/json
+
+{"operationId":"{{receiptId}}","quantity":5,"reason":"Supplier delivery"}
+
+### First product: OnHand 25, Reserved 3, Available 22
+GET {{inventory}}/{{firstProductId}}
+
+### Replay rejected request above: still 409, even though stock now suffices

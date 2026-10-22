@@ -1,8 +1,14 @@
+param(
+    [int]$ProductPort = 5101,
+    [int]$InventoryPort = 5102,
+    [int]$OrderPort = 5103
+)
+
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Net.Http
 $client = [System.Net.Http.HttpClient]::new()
-$orders = 'http://localhost:5103/api/orders'
-$inventory = 'http://localhost:5102/api/inventory'
+$orders = "http://localhost:$OrderPort/api/orders"
+$inventory = "http://localhost:$InventoryPort/api/inventory"
 
 function New-JsonRequest {
     param([string]$Method, [string]$Url, $Body, [string]$Key)
@@ -33,7 +39,7 @@ function Send-Json {
 
 function New-DemoProduct {
     param([decimal]$Price, [int]$OnHand)
-    $product = Send-Json 'POST' 'http://localhost:5101/api/products' @{
+    $product = Send-Json 'POST' "http://localhost:$ProductPort/api/products" @{
         sku = 'order-' + [Guid]::NewGuid().ToString('N'); name = 'Order demo'; unitPrice = $Price
     } 201
     $null = Send-Json 'PUT' "$inventory/$($product.id)" @{ onHand = $OnHand; reason = 'Order demo setup' }
@@ -41,7 +47,7 @@ function New-DemoProduct {
 }
 
 try {
-    $schema = Send-Json 'GET' 'http://localhost:5103/swagger/v1/swagger.json' $null
+    $schema = Send-Json 'GET' "http://localhost:$OrderPort/swagger/v1/swagger.json" $null
     $keyParameter = @($schema.paths.'/api/orders'.post.parameters | Where-Object { $_.name -eq 'Idempotency-Key' -and $_.in -eq 'header' })
     if ($keyParameter.Count -ne 1 -or -not $keyParameter[0].required) { throw 'Swagger does not describe the required idempotency header.' }
     if (-not $schema.components.schemas.CreateOrderRequest.example) { throw 'Order request example is missing.' }

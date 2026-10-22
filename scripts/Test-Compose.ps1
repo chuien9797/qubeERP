@@ -1,3 +1,9 @@
+param(
+    [int]$ProductPort = 5101,
+    [int]$InventoryPort = 5102,
+    [int]$OrderPort = 5103
+)
+
 $ErrorActionPreference = 'Stop'
 Push-Location (Join-Path $PSScriptRoot '..')
 try {
@@ -16,7 +22,7 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "Database access check failed for $($service.Login)." }
         Write-Output "$($service.Login): own database accessible; other service databases blocked; not sysadmin"
     }
-    foreach ($port in 5101, 5102, 5103) {
+    foreach ($port in $ProductPort, $InventoryPort, $OrderPort) {
         $base = "http://localhost:$port"
         $health = Invoke-WebRequest "$base/health" -UseBasicParsing
         if ($health.StatusCode -ne 200 -or $health.Content -ne 'Healthy') { throw "Health failed: $base" }
