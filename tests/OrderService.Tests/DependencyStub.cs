@@ -80,7 +80,10 @@ public sealed class DependencyStub : HttpMessageHandler
                 return await InventoryQueryResponse(id, cancellationToken);
             }
 
-            return Outcomes.TryGetValue(id, out var saved) ? Json(HttpStatusCode.OK, saved)
+            return Outcomes.TryGetValue(id, out var saved) ? Json(HttpStatusCode.OK,
+                new ReservationDetailsResponse(saved.ReservationId, saved.Status, saved.FailureCode, saved.Shortfalls,
+                    Reservations.First(value => value.ReservationId == id).Items!
+                        .Select(item => new ReservationItemResponse(item.ProductId, item.Quantity)).ToArray()))
                 : Json(HttpStatusCode.NotFound, new { errorCode = "RESERVATION_NOT_FOUND", reservationId = id });
         }
 

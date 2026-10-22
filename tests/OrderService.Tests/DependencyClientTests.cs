@@ -69,6 +69,7 @@ public sealed class DependencyClientTests
     [InlineData("malformed-json", InventoryOutcome.UnexpectedResponse)]
     [InlineData("unknown-status", InventoryOutcome.UnexpectedResponse)]
     [InlineData("server-error", InventoryOutcome.Uncertain)]
+    [InlineData("http-timeout", InventoryOutcome.Uncertain)]
     [InlineData("timeout", InventoryOutcome.Uncertain)]
     [InlineData("disconnect", InventoryOutcome.Uncertain)]
     public async Task InventoryResponseMustMatchItsExplicitContract(string result, InventoryOutcome expected)
@@ -88,6 +89,7 @@ public sealed class DependencyClientTests
             "malformed-json" => Raw(HttpStatusCode.Created, "{invalid"),
             "timeout" => throw new TaskCanceledException("Dependency timeout"),
             "disconnect" => throw new HttpRequestException("Response lost"),
+            "http-timeout" => new HttpResponseMessage(HttpStatusCode.RequestTimeout),
             _ => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
         });
         using var http = new HttpClient(dependencies) { BaseAddress = new Uri("http://dependencies.test") };
@@ -133,6 +135,7 @@ public sealed class DependencyClientTests
     [InlineData("forbidden", InventoryOutcome.UnexpectedResponse)]
     [InlineData("malformed-json", InventoryOutcome.UnexpectedResponse)]
     [InlineData("server-error", InventoryOutcome.Uncertain)]
+    [InlineData("http-timeout", InventoryOutcome.Uncertain)]
     [InlineData("timeout", InventoryOutcome.Uncertain)]
     [InlineData("disconnect", InventoryOutcome.Uncertain)]
     public async Task ReservationQueryValidatesSavedOutcomesAndGenuineAbsence(string result, InventoryOutcome expected)
@@ -142,21 +145,22 @@ public sealed class DependencyClientTests
         var product = Guid.NewGuid();
         dependencies.InventoryQueryResponse = (_, _) => Task.FromResult(result switch
         {
-            "reserved" => DependencyStub.Json(HttpStatusCode.OK, new ReservationResponse(id, "Reserved", null, [])),
-            "rejected" => DependencyStub.Json(HttpStatusCode.OK, new ReservationResponse(id, "Rejected", "INSUFFICIENT_STOCK", [new StockShortfall(product, 2, 1)])),
+            "reserved" => DependencyStub.Json(HttpStatusCode.OK, new ReservationDetailsResponse(id, "Reserved", null, [], [new(product, 2)])),
+            "rejected" => DependencyStub.Json(HttpStatusCode.OK, new ReservationDetailsResponse(id, "Rejected", "INSUFFICIENT_STOCK", [new StockShortfall(product, 2, 1)], [new(product, 2)])),
             "missing" => DependencyStub.Json(HttpStatusCode.NotFound, new { errorCode = "RESERVATION_NOT_FOUND", reservationId = id }),
             "generic-404" => DependencyStub.Json(HttpStatusCode.NotFound, new { errorCode = "NOT_FOUND", reservationId = id }),
             "wrong-404-id" => DependencyStub.Json(HttpStatusCode.NotFound, new { errorCode = "RESERVATION_NOT_FOUND", reservationId = Guid.NewGuid() }),
             "empty-404" => Raw(HttpStatusCode.NotFound, ""),
-            "wrong-id" => DependencyStub.Json(HttpStatusCode.OK, new ReservationResponse(Guid.NewGuid(), "Reserved", null, [])),
-            "processing" => DependencyStub.Json(HttpStatusCode.OK, new ReservationResponse(id, "Processing", null, [])),
-            "wrong-shortfall" => DependencyStub.Json(HttpStatusCode.OK, new ReservationResponse(id, "Rejected", "INSUFFICIENT_STOCK", [new StockShortfall(product, 3, 1)])),
-            "wrong-failure-code" => DependencyStub.Json(HttpStatusCode.OK, new ReservationResponse(id, "Rejected", "UNKNOWN", [new StockShortfall(product, 2, 1)])),
+            "wrong-id" => DependencyStub.Json(HttpStatusCode.OK, new ReservationDetailsResponse(Guid.NewGuid(), "Reserved", null, [], [new(product, 2)])),
+            "processing" => DependencyStub.Json(HttpStatusCode.OK, new ReservationDetailsResponse(id, "Processing", null, [], [new(product, 2)])),
+            "wrong-shortfall" => DependencyStub.Json(HttpStatusCode.OK, new ReservationDetailsResponse(id, "Rejected", "INSUFFICIENT_STOCK", [new StockShortfall(product, 3, 1)], [new(product, 2)])),
+            "wrong-failure-code" => DependencyStub.Json(HttpStatusCode.OK, new ReservationDetailsResponse(id, "Rejected", "UNKNOWN", [new StockShortfall(product, 2, 1)], [new(product, 2)])),
             "invalid-request" => DependencyStub.Json(HttpStatusCode.BadRequest, new { errorCode = "INVALID_RESERVATION" }),
             "forbidden" => new HttpResponseMessage(HttpStatusCode.Forbidden),
             "malformed-json" => Raw(HttpStatusCode.OK, "{invalid"),
             "timeout" => throw new TaskCanceledException("Query timeout"),
             "disconnect" => throw new HttpRequestException("Query disconnected"),
+            "http-timeout" => new HttpResponseMessage(HttpStatusCode.RequestTimeout),
             _ => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
         });
         using var http = new HttpClient(dependencies) { BaseAddress = new Uri("http://dependencies.test") };

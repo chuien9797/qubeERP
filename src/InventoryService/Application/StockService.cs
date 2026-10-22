@@ -9,8 +9,13 @@ using Shared.Contracts.Inventory;
 
 namespace InventoryService.Application;
 
-public sealed class StockService(IDbContextFactory<InventoryServiceContext> contextFactory, IProductClient products)
+public sealed class StockService(IDbContextFactory<InventoryServiceContext> contextFactory, IProductClient products,
+    DbContextOptions<InventoryServiceContext> options)
 {
+    // An absolute count has no replay identity. A lost commit acknowledgement must not
+    // reapply an old count over receipts/reservations committed after the first attempt.
+    private readonly DbContextOptions<InventoryServiceContext> writeOptions = new DbContextOptionsBuilder<InventoryServiceContext>(options)
+        .UseSqlServer(sql => sql.ExecutionStrategy(dependencies => new NonRetryingExecutionStrategy(dependencies))).Options;
     public async Task<InventoryResponse?> GetAsync(Guid productId, CancellationToken cancellationToken)
     {
         await using var database = await contextFactory.CreateDbContextAsync(cancellationToken);
@@ -70,13 +75,13 @@ public sealed class StockService(IDbContextFactory<InventoryServiceContext> cont
     private async Task<bool> TryInitializeAsync(
         Guid productId, int onHand, string reason, CancellationToken cancellationToken)
     {
-        await using var strategyContext = await contextFactory.CreateDbContextAsync(cancellationToken);
+        await using var strategyContext = new InventoryServiceContext(writeOptions);
         var strategy = strategyContext.Database.CreateExecutionStrategy();
         try
         {
             await strategy.ExecuteAsync(async () =>
             {
-                await using var database = await contextFactory.CreateDbContextAsync(cancellationToken);
+                await using var database = new InventoryServiceContext(writeOptions);
                 await using var transaction = await database.Database.BeginTransactionAsync(cancellationToken);
                 var now = DateTimeOffset.UtcNow;
                 database.StockItems.Add(new StockItem
@@ -108,11 +113,11 @@ public sealed class StockService(IDbContextFactory<InventoryServiceContext> cont
     private async Task<StockUpdateResult> UpdateAsync(
         Guid productId, int onHand, string reason, CancellationToken cancellationToken)
     {
-        await using var strategyContext = await contextFactory.CreateDbContextAsync(cancellationToken);
+        await using var strategyContext = new InventoryServiceContext(writeOptions);
         var strategy = strategyContext.Database.CreateExecutionStrategy();
         return await strategy.ExecuteAsync(async () =>
         {
-            await using var database = await contextFactory.CreateDbContextAsync(cancellationToken);
+            await using var database = new InventoryServiceContext(writeOptions);
             await using var transaction = await database.Database.BeginTransactionAsync(cancellationToken);
             var now = DateTimeOffset.UtcNow;
             var changed = await UpdateBalanceAsync(database, productId, onHand, now, cancellationToken);

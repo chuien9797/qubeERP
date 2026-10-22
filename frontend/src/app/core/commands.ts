@@ -29,47 +29,59 @@ export const storageKey = "qubeerp.commands.v1";
 @Injectable({ providedIn: "root" })
 export class Commands {
   private api = inject(Api);
+  readonly storageError = signal("");
   readonly entries = signal<SavedCommand[]>(this.load());
   readonly busy = signal<string[]>([]);
-  readonly storageError = signal("");
   readonly unresolved = computed(() =>
     this.entries().filter((c) =>
       ["prepared", "pending", "uncertain", "attention"].includes(c.state),
     ),
   );
+  private readStored(): SavedCommand[] {
+    const raw = JSON.parse(localStorage.getItem(storageKey) ?? "[]");
+    if (
+      !Array.isArray(raw) ||
+      !raw.every(
+        (c) =>
+          c &&
+          typeof c.id === "string" &&
+          ["order", "cancel", "receipt", "stocktake", "product", "reservation"].includes(c.kind) &&
+          c.payload &&
+          typeof c.payload === "object" &&
+          typeof c.key === "string" &&
+          typeof c.target === "string" &&
+          typeof c.createdAt === "string" &&
+          ["prepared", "pending", "uncertain", "verified", "attention", "archived"].includes(c.state),
+      )
+    ) throw new Error("Invalid request history");
+    if (new Set(raw.map((c) => c.id)).size !== raw.length)
+      throw new Error("Duplicate request identities");
+    return raw;
+  }
   private load(): SavedCommand[] {
     try {
-      const raw = JSON.parse(localStorage.getItem(storageKey) || "[]");
-      return Array.isArray(raw)
-        ? raw.filter(
-            (c) =>
-              c &&
-              typeof c.id === "string" &&
-              [
-                "order",
-                "cancel",
-                "receipt",
-                "stocktake",
-                "product",
-                "reservation",
-              ].includes(c.kind) &&
-              c.payload &&
-              typeof c.key === "string",
-          )
-        : [];
+      const stored = this.readStored();
+      this.storageError.set("");
+      return stored;
     } catch {
+      this.storageError.set(
+        "Saved request history could not be read. Command submission is blocked to preserve the original records. Restore browser storage before submitting another request.",
+      );
       return [];
     }
   }
-  private persist(entries: SavedCommand[]) {
+  private persist(change: (stored: SavedCommand[]) => SavedCommand[]) {
     // A command is never sent unless its stable identity and snapshot can first be saved.
     try {
+      // Read again before writing: another tab may have saved a request since this instance loaded.
+      // Invalid/unreadable history must never be silently replaced with an empty history.
+      const entries = change(this.readStored());
       localStorage.setItem(storageKey, JSON.stringify(entries));
       this.entries.set(entries);
       this.storageError.set("");
     } catch {
       this.storageError.set(
-        "Browser storage is unavailable or full. Cannot safely save request state. An existing request may already have completed; inspect its original saved identity and backend state before sending another command.",
+        "Browser storage is unavailable, full or contains unreadable request history. Cannot safely save request state. An existing request may already have completed; preserve its original saved identity and inspect backend state before sending another command.",
       );
       throw new Error(this.storageError());
     }
@@ -85,18 +97,23 @@ export class Commands {
       createdAt: new Date().toISOString(),
       state: "prepared",
     };
-    this.persist([command, ...this.entries()]);
+    this.persist((stored) => [command, ...stored]);
     return command;
   }
   get(id: string) {
     return this.entries().find((c) => c.id === id);
   }
   private update(id: string, patch: Partial<SavedCommand>) {
-    this.persist(
-      this.entries().map((c) => (c.id === id ? { ...c, ...patch } : c)),
-    );
+    this.persist((stored) => {
+      if (!stored.some((c) => c.id === id))
+        throw new Error("Saved request identity is missing");
+      return stored.map((c) => (c.id === id ? { ...c, ...patch } : c));
+    });
   }
   async run(id: string, reconcile = false): Promise<SavedCommand | undefined> {
+    const stored = this.load();
+    if (this.storageError()) throw new Error(this.storageError());
+    this.entries.set(stored);
     const c = this.get(id);
     if (!c || this.busy().includes(id)) return c;
     if (

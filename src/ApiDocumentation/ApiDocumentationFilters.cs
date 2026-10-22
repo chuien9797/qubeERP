@@ -118,7 +118,7 @@ public sealed class ApiOperationDocumentation : IOperationFilter
         {
             ["201"] = "New order Confirmed with saved product/price snapshots. Stock is reserved, not shipped. Location identifies the order.",
             ["200"] = "Existing order is Confirmed, Cancelled or Fulfilled, including a successful Pending recovery. Returns saved snapshots without another logical stock hold.",
-            ["202"] = "Pending: Inventory's outcome is uncertain. Response contains orderId, status and statusUrl; Location identifies the order. Repeat the same POST key/items to recover; GET alone does not recover.",
+            ["202"] = "Pending: Inventory's outcome is uncertain, including an Inventory HTTP 408. Response contains orderId, status and statusUrl; Location identifies the order. Repeat the same POST key/items to recover; GET alone does not recover. Recovery verifies original product IDs and quantities from the saved reservation; mismatched or missing lines require review.",
             ["409"] = "INSUFFICIENT_STOCK with orderId, orderStatus, statusUrl and original shortfalls, or IDEMPOTENCY_KEY_CONFLICT for a changed payload. Numeric status is the HTTP code. No additional stock hold.",
             ["422"] = "INVALID_PRODUCT with invalidProductIds for missing/inactive products, or ORDER_TOTAL_OUT_OF_RANGE. No new order or reservation created.",
             ["502"] = "Inventory contract failure: stored Rejected/INVENTORY_INVALID_REQUEST or RequiresReview/RESERVATION_PAYLOAD_CONFLICT/INVENTORY_UNEXPECTED_RESPONSE. Inspect orderId/statusUrl; do not treat as confirmed.",

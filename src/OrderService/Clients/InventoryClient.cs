@@ -11,7 +11,7 @@ public sealed class InventoryClient(HttpClient httpClient, ILogger<InventoryClie
         try
         {
             using var response = await httpClient.PostAsJsonAsync("/api/inventory/reservations", request, cancellationToken);
-            if ((int)response.StatusCode >= 500)
+            if ((int)response.StatusCode >= 500 || response.StatusCode == HttpStatusCode.RequestTimeout)
             {
                 logger.LogWarning("Inventory reservation returned HTTP {StatusCode} for {OrderId}; outcome is uncertain",
                     (int)response.StatusCode, request.ReservationId);
@@ -72,7 +72,7 @@ public sealed class InventoryClient(HttpClient httpClient, ILogger<InventoryClie
         try
         {
             using var response = await httpClient.GetAsync($"/api/inventory/reservations/{reservationId}", cancellationToken);
-            if ((int)response.StatusCode >= 500)
+            if ((int)response.StatusCode >= 500 || response.StatusCode == HttpStatusCode.RequestTimeout)
             {
                 logger.LogWarning("Inventory reservation query returned HTTP {StatusCode} for {OrderId}; outcome is uncertain",
                     (int)response.StatusCode, reservationId);
@@ -92,8 +92,8 @@ public sealed class InventoryClient(HttpClient httpClient, ILogger<InventoryClie
                 return new InventoryResult(InventoryOutcome.UnexpectedResponse);
             }
 
-            var reservation = await response.Content.ReadFromJsonAsync<ReservationResponse>(cancellationToken);
-            if (reservation is null || reservation.ReservationId != reservationId)
+            var reservation = await response.Content.ReadFromJsonAsync<ReservationDetailsResponse>(cancellationToken);
+            if (reservation is null || reservation.ReservationId != reservationId || !MatchingItems(reservation.Items, items))
             {
                 return new InventoryResult(InventoryOutcome.UnexpectedResponse);
             }
@@ -127,6 +127,11 @@ public sealed class InventoryClient(HttpClient httpClient, ILogger<InventoryClie
             return new InventoryResult(InventoryOutcome.UnexpectedResponse);
         }
     }
+
+    private static bool MatchingItems(IReadOnlyList<ReservationItemResponse>? actual, IReadOnlyList<ReservationItemRequest> expected) =>
+        actual is not null && actual.Count == expected.Count
+        && actual.All(line => line is not null && expected.Any(item => item.ProductId == line.ProductId && item.Quantity == line.Quantity))
+        && actual.Select(line => line.ProductId).Distinct().Count() == actual.Count;
 
     private static bool ValidShortfalls(IReadOnlyList<StockShortfall>? shortfalls, IReadOnlyList<ReservationItemRequest> items)
     {

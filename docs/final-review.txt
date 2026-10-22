@@ -1,0 +1,104 @@
+QubeERP delivery review - 23 October 2026 (Malaysia time)
+
+Scope: local assessment/demo, as confirmed by the project owner.
+Reviewed the three API services, Angular command/recovery flows, request validation,
+SQL transactions and constraints, service logins, outbox/RabbitMQ handling, Swagger,
+Docker startup configuration, dependency advisories and tracked secret filenames.
+
+FIXED
+
+1. High: unsafe retry of an absolute stock count after an uncertain SQL commit.
+   StockService write contexts now disable automatic SQL retries. Reads retain
+   their configured retry policy. Opening/stocktake requests with a lost response
+   require stock/ledger inspection, as the frontend already requires.
+   Regression tests inject a lost acknowledgement after an actual commit, apply
+   a separate receipt, and verify the receipt remains in stock and the ledger.
+
+2. High: Pending recovery trusted a reservation's ID/status without comparing lines.
+   InventoryClient now requires matching original product IDs and quantities,
+   without duplicate lines. Missing or contradictory lines require manual review.
+   OrderService must run with the expanded reservation-details API already shipped
+   in InventoryService. No historical data is reconstructed from stock balances.
+
+3. Medium: an Inventory HTTP 408 could permanently move an otherwise recoverable
+   order into RequiresReview. Reservation commands/queries now preserve uncertainty;
+   a same-key retry queries the durable outcome. The regression test commits the
+   real hold before returning 408, then verifies recovery creates no second hold.
+
+4. High advisory severity, development tooling: npm audit flagged Vite 8.3.0.
+   A focused npm override pins the compatible security patch 8.3.3, with lockfile
+   updates. Angular's pinned builder otherwise selects the affected Vite version.
+   https://github.com/vitejs/vite/security/advisories/GHSA-9jrq-w75r-8gcw
+   Angular build, unit tests and browser tests validate this dependency override.
+   Restart an already-running Angular process to load the patched dependency.
+
+5. Medium: unreadable browser request history was silently treated as empty and
+   could be overwritten, losing original retry identities. Writes now re-read
+   and validate stored history and fail closed on unreadable records. New entries
+   preserve requests saved since this tab loaded; non-idempotent replays consult
+   the latest saved state. Invalid data is preserved for investigation/restoration.
+   This is not an atomic multi-tab command coordinator; use one operational tab.
+
+REMAINING LIMITS / FOLLOW-UP WORK
+
+- Local demo only: no authentication, role authorization, production TLS setup or
+  per-user audit attribution. Compose publishes ports on 127.0.0.1; Angular also
+  binds to loopback. Do not expose these unauthenticated services to a network.
+  Service database users own only their own database, but have db_owner there to
+  apply startup migrations. Production needs separate migration/runtime privileges.
+
+- Product deactivation does not fence in-flight orders across services. An order
+  already validated active, including a saved Pending order, can still complete.
+  Direct Inventory reservations are stock operations and do not consult IsActive.
+
+- Direct Inventory release is an operator-level API; it does not update an Order.
+  Use Order cancellation for order-owned holds so both services are coordinated.
+  Manual review has no automatic repair command. Fulfilment/consumption is absent.
+
+- Extreme monetary values exceed JavaScript number precision. For example, the
+  supported backend decimal 9999999999999999.99 parses as 10000000000000000 in JS.
+  Backend decimal arithmetic and range checks remain authoritative; the Angular
+  numeric forms/display are not an exact financial interface over the entire
+  backend decimal(18,2) range. Supporting that range exactly needs lossless decimal
+  transport/display and decimal-safe form submission. This is not fixed by a
+  currency-formatting change and is a follow-up beyond ordinary demo prices.
+
+- Browser history is origin-local, not a shared audit database. Do not clear it
+  while requests are unresolved. Simultaneous tabs have no transactional local
+  storage lock. Backend idempotency protects retries of the same saved identity,
+  not separate purchases submitted with different keys.
+
+- Order events are at-least-once notifications. A crash after broker confirmation
+  can redeliver an event; the current consumer only validates and logs it. Any
+  future business-writing consumer needs durable deduplication by EventId.
+
+VALIDATION
+
+Restore: passed, using repository-local .NET/NuGet folders.
+Release solution build: passed, zero warnings/errors.
+Angular typecheck and production build: passed.
+Angular unit tests: 23 passed.
+Live browser tests: 7 passed, against real APIs and patched Vite on port 4201.
+npm audit: zero reported vulnerabilities, including development dependencies.
+.NET package audit: no vulnerable direct/transitive packages across all projects.
+Container CVE scan: attempted; Docker Scout requires a Docker login and did not
+run. OS/base-image/broker/database image CVEs are therefore not verified here.
+Full backend suite: 412 passed, zero failed/skipped (Inventory 141, Order 224,
+Product 46, database ownership/infrastructure 1). The 14 added regression cases
+passed. Fault injection uses real SQL commits with controlled lost acknowledgements.
+The 42 dependency-client tests were rechecked after aligning negative-response
+fixtures with the expanded reservation DTO; all passed.
+
+No source files or database volumes were deleted. No commits or pushes were made.
+README updates are local; no .md or .docx files are staged.
+
+MANUAL POWERSHELL STARTUP
+
+cd C:\GitHub\qubeERP
+docker compose up --build -d --wait
+cd frontend
+npm ci
+npm start
+
+Open http://127.0.0.1:4200 . If an Angular process already occupies that port,
+stop it in its owning terminal and restart it to load the dependency patch.

@@ -235,6 +235,26 @@ describe("Durable command recovery", () => {
     expect(commands.get(c.id)?.status).toBe("Rejected");
     expect(commands.get(c.id)?.problem?.shortfalls?.[0].requested).toBe(7);
   });
+  it.each(["{truncated", "null", '[{"id":"lost"}]'])("preserves unreadable history and blocks sending: %s", async (raw) => {
+    localStorage.setItem(storageKey, raw);
+    expect(() => commands.prepare("order", "", { items: [] })).toThrow("unreadable request history");
+    expect(localStorage.getItem(storageKey)).toBe(raw);
+    expect(api.command).not.toHaveBeenCalled();
+  });
+  it("retains a request saved by another tab after this instance loaded", () => {
+    const original = commands.prepare("order", "", { items: [] });
+    const other = { ...original, id: "other-tab", key: "other-key" };
+    localStorage.setItem(storageKey, JSON.stringify([other, original]));
+    commands.prepare("receipt", "p", { quantity: 1, operationId: "op" });
+    expect(commands.get(other.id)?.key).toBe("other-key");
+    expect(JSON.parse(localStorage.getItem(storageKey)!)).toHaveLength(3);
+  });
+  it("reads the latest saved state before replaying a non-idempotent command", async () => {
+    const c = commands.prepare("stocktake", "p", { onHand: 10, reason: "Count" });
+    localStorage.setItem(storageKey, JSON.stringify([{ ...c, state: "uncertain" }]));
+    await expect(commands.run(c.id)).rejects.toThrow("Inspect");
+    expect(api.command).not.toHaveBeenCalled();
+  });
   it("records a reversible stocktake review without removing history or verifying the outcome", async () => {
     const c = commands.prepare("stocktake", "p", {
       onHand: 10,

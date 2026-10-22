@@ -149,6 +149,7 @@ public sealed class PendingRecoveryTests(RecoveryFixture fixture) : IClassFixtur
     [InlineData("timeout")]
     [InlineData("disconnect")]
     [InlineData("server-error")]
+    [InlineData("http-timeout")]
     public async Task UncertainQueryKeepsPendingWithoutRepostingAndLaterRecovers(string failure)
     {
         var product = await fixture.AddProductAsync();
@@ -159,6 +160,7 @@ public sealed class PendingRecoveryTests(RecoveryFixture fixture) : IClassFixtur
         {
             "timeout" => throw new TaskCanceledException("Query timeout"),
             "disconnect" => throw new HttpRequestException("Query disconnected"),
+            "http-timeout" => Task.FromResult(new HttpResponseMessage(HttpStatusCode.RequestTimeout)),
             _ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable))
         };
         try
@@ -343,7 +345,7 @@ public sealed class PendingRecoveryTests(RecoveryFixture fixture) : IClassFixtur
             await using var orders = fixture.CreateOrderContext();
             await orders.Orders.Where(order => order.Id == id).ExecuteUpdateAsync(update => update
                 .SetProperty(order => order.Status, "RequiresReview").SetProperty(order => order.FailureCode, "OPERATOR_REVIEW"), token);
-            return DependencyStub.Json(HttpStatusCode.OK, new ReservationResponse(id, "Reserved", null, []));
+            return DependencyStub.Json(HttpStatusCode.OK, new ReservationDetailsResponse(id, "Reserved", null, [], [new(product, 1)]));
         };
         try
         {
@@ -352,6 +354,53 @@ public sealed class PendingRecoveryTests(RecoveryFixture fixture) : IClassFixtur
             var saved = await ReadAsync(pending.OrderId);
             Assert.Equal("RequiresReview", saved.Status);
             Assert.Equal("OPERATOR_REVIEW", saved.FailureCode);
+        }
+        finally { fixture.ResetHandlers(); }
+    }
+
+    [Fact]
+    public async Task RecoveryCannotConfirmAReservationWithDifferentPersistedQuantities()
+    {
+        var product = await fixture.AddProductAsync();
+        var key = NewKey();
+        var pending = await CreatePendingAsync(key, Item(product, 2));
+        using var unrelatedHold = await fixture.ReserveAsync(new CreateReservationRequest
+        {
+            ReservationId = pending.OrderId,
+            Items = [new() { ProductId = product, Quantity = 1 }]
+        }, CancellationToken.None);
+        Assert.Equal(HttpStatusCode.Created, unrelatedHold.StatusCode);
+        var calls = Dependencies.InventoryCalls;
+        using var replay = await fixture.PostAsync(key, Item(product, 2));
+        Assert.Equal(HttpStatusCode.BadGateway, replay.StatusCode);
+        Assert.Equal("RequiresReview", (await ReadAsync(pending.OrderId)).Status);
+        Assert.Equal(calls, Dependencies.InventoryCalls);
+        await AssertHoldAsync(pending.OrderId, product, 10, 1, 1);
+    }
+
+    [Fact]
+    public async Task HttpTimeoutAfterCommittedReservationRemainsPendingAndRecoversWithoutASecondHold()
+    {
+        var product = await fixture.AddProductAsync();
+        var key = NewKey();
+        Dependencies.InventoryResponse = async (request, token) =>
+        {
+            using var committed = await fixture.ReserveAsync(request, token);
+            Assert.Equal(HttpStatusCode.Created, committed.StatusCode);
+            return new HttpResponseMessage(HttpStatusCode.RequestTimeout);
+        };
+        try
+        {
+            using var initial = await fixture.PostAsync(key, Item(product, 2));
+            Assert.Equal(HttpStatusCode.Accepted, initial.StatusCode);
+            var pending = (await initial.Content.ReadFromJsonAsync<PendingOrderResponse>())!;
+            var calls = Dependencies.InventoryCalls;
+            fixture.ResetHandlers();
+            using var replay = await fixture.PostAsync(key, Item(product, 2));
+            Assert.Equal(HttpStatusCode.OK, replay.StatusCode);
+            Assert.Equal("Confirmed", (await ReadAsync(pending.OrderId)).Status);
+            Assert.Equal(calls, Dependencies.InventoryCalls);
+            await AssertHoldAsync(pending.OrderId, product, 10, 2, 1);
         }
         finally { fixture.ResetHandlers(); }
     }
