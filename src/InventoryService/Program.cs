@@ -62,6 +62,7 @@ builder.Services.AddProblemDetails(options => options.CustomizeProblemDetails = 
 });
 
 var app = builder.Build();
+app.UseMalaysiaResponseTime();
 app.UseExceptionHandler(new ExceptionHandlerOptions
 {
     StatusCodeSelector = exception => exception is BadHttpRequestException badRequest

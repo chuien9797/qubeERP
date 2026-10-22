@@ -80,7 +80,7 @@ public sealed class ApiOperationDocumentation : IOperationFilter
         }),
         ["ReservationsController.Get"] = new("GetReservation", new()
         {
-            ["200"] = "Stored Reserved, Released, Consumed or Rejected result. Rejected results include failureCode and original shortfalls. This read does not change stock.",
+            ["200"] = "Stored Reserved, Released, Consumed or Rejected outcome with original productId/quantity items. These historical quantities are not current global Reserved balances. Rejected results retain their original failureCode and shortfalls. Read-only; no ProductService lookup.",
             ["404"] = "RESERVATION_NOT_FOUND with reservationId: no stored outcome exists for that ID."
         }),
         ["ReservationsController.Release"] = new("ReleaseReservation", new()
@@ -164,7 +164,15 @@ public sealed class ApiOperationDocumentation : IOperationFilter
 
         foreach (var (status, value) in operation.Responses)
         {
-            if (value is not OpenApiResponse { Content.Count: > 0 } response) continue;
+            if (value is not OpenApiResponse response) continue;
+            response.Headers ??= new Dictionary<string, IOpenApiHeader>();
+            response.Headers[ApiResponseTime.MalaysiaTimeHeader] = new OpenApiHeader
+            {
+                Description = "Response time in Malaysia (UTC+08:00), in ISO 8601 format. The standard HTTP Date header remains GMT; stored *AtUtc timestamps remain UTC.",
+                Schema = new OpenApiSchema { Type = JsonSchemaType.String, Format = "date-time",
+                    Example = JsonValue.Create("2026-10-22T21:28:35+08:00") }
+            };
+            if (response.Content is not { Count: > 0 }) continue;
             var media = response.Content.TryGetValue("application/json", out var json) ? json : response.Content.Values.First();
             var mediaType = int.TryParse(status, out var code) && code >= 400 ? "application/problem+json" : "application/json";
             response.Content = new Dictionary<string, OpenApiMediaType> { [mediaType] = media };
@@ -173,6 +181,17 @@ public sealed class ApiOperationDocumentation : IOperationFilter
         foreach (var value in operation.Parameters ?? [])
         {
             if (value is not OpenApiParameter parameter) continue;
+            if (key == "OrdersController.List" && parameter.Name == "status")
+            {
+                parameter.Schema = new OpenApiSchema
+                {
+                    Type = JsonSchemaType.String,
+                    Enum = [JsonValue.Create("Pending")!, JsonValue.Create("Confirmed")!, JsonValue.Create("Rejected")!,
+                        JsonValue.Create("RequiresReview")!, JsonValue.Create("CancellationPending")!,
+                        JsonValue.Create("Cancelled")!, JsonValue.Create("Fulfilled")!]
+                };
+                parameter.Description = "Optional saved order state. Leave unselected for all orders; select RequiresReview for manual investigation. Listing never reconciles orders or changes stock.";
+            }
             parameter.Description = parameter.Name switch
             {
                 "Idempotency-Key" => "Required stable key for one purchase: one nonblank header, at most 128 characters. Trimmed and case-sensitive. Keep the key and identical items when retrying or recovering Pending. Changed items return 409; a new purchase needs a new key. Swagger generates a key for its helper; HTTP clients supply their own.",
@@ -218,6 +237,7 @@ public sealed class ApiSchemaDocumentation : ISchemaFilter
             "ReceiveStockRequest" => """{"operationId":"cccccccc-cccc-cccc-cccc-cccccccccccc","quantity":5,"reason":"Supplier delivery"}""",
             "StockReceiptResponse" => """{"operationId":"cccccccc-cccc-cccc-cccc-cccccccccccc","productId":"11111111-1111-1111-1111-111111111111","quantity":5,"reason":"Supplier delivery","onHandAfter":15,"reservedAfter":3,"availableQuantityAfter":12,"createdAtUtc":"2026-10-22T00:00:00+00:00"}""",
             "ReservationResponse" => """{"reservationId":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb","status":"Reserved","failureCode":null,"shortfalls":[]}""",
+            "ReservationDetailsResponse" => """{"reservationId":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb","status":"Reserved","failureCode":null,"shortfalls":[],"items":[{"productId":"11111111-1111-1111-1111-111111111111","quantity":3},{"productId":"22222222-2222-2222-2222-222222222222","quantity":2}]}""",
             "OrderResponse" => """{"orderId":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb","status":"Confirmed","totalAmount":199.50,"lines":[{"productId":"11111111-1111-1111-1111-111111111111","sku":"MOUSE-01","name":"Wireless Mouse","unitPrice":59.90,"quantity":3,"lineTotal":179.70},{"productId":"22222222-2222-2222-2222-222222222222","sku":"PAD-01","name":"Mouse Pad","unitPrice":9.90,"quantity":2,"lineTotal":19.80}],"failureCode":null,"shortfalls":[],"createdAtUtc":"2026-10-22T00:00:00+00:00","updatedAtUtc":"2026-10-22T00:00:01+00:00","lastAttemptAtUtc":"2026-10-22T00:00:00+00:00"}""",
             "PendingOrderResponse" => """{"orderId":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb","status":"Pending","statusUrl":"/api/orders/bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"}""",
             "CancelOrderRequest" or "ReleaseReservationRequest" => """{"reason":"Customer cancelled before shipment"}""",
@@ -245,7 +265,9 @@ public sealed class ApiSchemaDocumentation : ISchemaFilter
                 "cancellationReason" => "First accepted cancellation reason; preserved on all retries, including different replay text. Null before cancellation.",
                 "shortfalls" => "Original insufficient-stock details. Rejected replay does not recalculate availability after restock.",
                 "missingProductIds" => "Requested IDs that do not exist. Inactive products are returned in products with isActive=false.",
-                "items" => "1–50 non-null lines with distinct, nonempty product IDs. Each line quantity must be 1–10,000. Item order does not affect the request fingerprint.",
+                "items" => context.Type.Name == "ReservationDetailsResponse"
+                    ? "Original persisted request lines, sorted by product ID, including rejected requests. Quantities remain unchanged after release or consumption and do not describe current stock balances."
+                    : "1–50 non-null lines with distinct, nonempty product IDs. Each line quantity must be 1–10,000. Item order does not affect the request fingerprint.",
                 "sku" => "Catalogue SKU is trimmed, uppercased and unique; at most 50 characters after normalisation. Order lines retain the saved SKU.",
                 "name" => "Catalogue name is trimmed and at most 200 characters. Order lines retain the saved name.",
                 "unitPrice" => "Nonnegative decimal with at most two fractional digits, up to 9999999999999999.99. Order lines retain the saved catalogue price.",

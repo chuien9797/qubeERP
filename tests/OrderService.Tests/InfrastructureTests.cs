@@ -17,9 +17,13 @@ public sealed class InfrastructureTests
     {
         await using var factory = new ApiFactory(ready);
         using var client = factory.CreateClient();
+        var before = DateTimeOffset.UtcNow;
         using var response = await client.GetAsync("/health");
         Assert.Equal(status, response.StatusCode);
         Assert.Equal(body, await response.Content.ReadAsStringAsync());
+        var malaysiaTime = DateTimeOffset.Parse(Assert.Single(response.Headers.GetValues("X-Malaysia-Time")), System.Globalization.CultureInfo.InvariantCulture);
+        Assert.Equal(TimeSpan.FromHours(8), malaysiaTime.Offset);
+        Assert.InRange(malaysiaTime.ToUniversalTime(), before, DateTimeOffset.UtcNow);
     }
 
     [Theory]

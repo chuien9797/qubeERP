@@ -23,10 +23,20 @@ public sealed class ReservationService
         this.logger = logger;
     }
 
-    public async Task<ReservationResponse?> GetAsync(Guid reservationId, CancellationToken cancellationToken)
+    public async Task<ReservationDetailsResponse?> GetAsync(Guid reservationId, CancellationToken cancellationToken)
     {
-        var reservation = await FindAsync(reservationId, cancellationToken);
-        return reservation is null ? null : ToResponse(reservation);
+        await using var database = new InventoryServiceContext(transactionOptions);
+        var reservation = await database.Reservations.AsNoTracking()
+            .SingleOrDefaultAsync(item => item.Id == reservationId, cancellationToken);
+        if (reservation is null) return null;
+
+        var lines = await database.ReservationLines.AsNoTracking()
+            .Where(line => line.ReservationId == reservationId)
+            .Select(line => new ReservationItemResponse(line.ProductId, line.Quantity))
+            .ToArrayAsync(cancellationToken);
+        var outcome = ToResponse(reservation);
+        return new ReservationDetailsResponse(outcome.ReservationId, outcome.Status, outcome.FailureCode, outcome.Shortfalls,
+            lines.OrderBy(line => line.ProductId.ToString("D"), StringComparer.Ordinal).ToArray());
     }
 
     public async Task<ReservationResult> ReserveAsync(CreateReservationRequest request, CancellationToken cancellationToken)

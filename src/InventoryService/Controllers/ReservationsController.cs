@@ -72,12 +72,12 @@ public sealed class ReservationsController(ReservationService reservations) : Co
     }
 
     [HttpGet("{reservationId:guid}")]
-    [EndpointSummary("Check a reservation's result.")]
-    [EndpointDescription("Choose a recent reservation in Swagger or enter a known reservation ID. For an order reservation, use its order ID. Reading a reservation does not change stock.")]
-    [ProducesResponseType<ReservationResponse>(StatusCodes.Status200OK)]
+    [EndpointSummary("View a reservation's outcome and original product quantities.")]
+    [EndpointDescription("Returns original persisted productId/quantity lines, ordered by product ID, for Reserved, Released, Consumed and Rejected outcomes. Quantities describe the historical request, not current stock balances. Rejected results retain their original failure code and shortfalls. This read never changes stock or contacts ProductService.")]
+    [ProducesResponseType<ReservationDetailsResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<ReservationResponse>> Get(Guid reservationId, CancellationToken cancellationToken)
+    public async Task<ActionResult<ReservationDetailsResponse>> Get(Guid reservationId, CancellationToken cancellationToken)
     {
         if (reservationId == Guid.Empty)
         {
