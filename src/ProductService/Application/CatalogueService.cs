@@ -36,9 +36,17 @@ public sealed class CatalogueService(ProductServiceContext database)
         return product is null ? null : ToResponse(product);
     }
 
-    public async Task<IReadOnlyList<ProductResponse>> ListAsync(int offset, int limit, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<ProductResponse>> ListAsync(int offset, int limit, CancellationToken cancellationToken,
+        string? search = null, bool? isActive = null)
     {
-        var products = await database.Products.AsNoTracking().OrderBy(value => value.CreatedAtUtc)
+        var query = database.Products.AsNoTracking();
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var term = search.Trim();
+            query = query.Where(value => value.Sku.Contains(term) || value.Name.Contains(term));
+        }
+        if (isActive.HasValue) query = query.Where(value => value.IsActive == isActive.Value);
+        var products = await query.OrderBy(value => value.CreatedAtUtc)
             .ThenBy(value => value.Id).Skip(offset).Take(limit).ToListAsync(cancellationToken);
         return products.Select(ToResponse).ToArray();
     }

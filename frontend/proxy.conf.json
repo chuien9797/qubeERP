@@ -1,0 +1,20 @@
+{
+  "/gateway/products/**": {
+    "target": "http://127.0.0.1:5101",
+    "secure": false,
+    "changeOrigin": true,
+    "pathRewrite": { "^/gateway/products": "" }
+  },
+  "/gateway/inventory/**": {
+    "target": "http://127.0.0.1:5102",
+    "secure": false,
+    "changeOrigin": true,
+    "pathRewrite": { "^/gateway/inventory": "" }
+  },
+  "/gateway/orders/**": {
+    "target": "http://127.0.0.1:5103",
+    "secure": false,
+    "changeOrigin": true,
+    "pathRewrite": { "^/gateway/orders": "" }
+  }
+}

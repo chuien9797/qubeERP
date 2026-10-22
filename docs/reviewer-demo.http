@@ -7,6 +7,11 @@
 @orderKey = replace-with-a-new-guid
 @rejectedKey = replace-with-another-new-guid
 @receiptId = replace-with-a-third-new-guid
+@confirmedOrderId = paste-confirmed-order-id
+@rejectedOrderId = paste-rejected-order-id
+
+# All API responses include X-Malaysia-Time in ISO 8601 with +08:00.
+# Standard Date remains GMT; stored AtUtc fields remain UTC.
 
 ### Create first product (201); copy response id into firstProductId
 POST {{products}}
@@ -23,6 +28,12 @@ Content-Type: application/json
 ### List products (200)
 GET {{products}}
 
+### Search active catalogue products before pagination (200); Active does not imply stock availability
+GET {{products}}?search=mouse&isActive=true&offset=0&limit=20
+
+### Recent saved order activity (200); read-only, newest first, no global metrics implied
+GET {{orders}}?newestFirst=true&offset=0&limit=20
+
 ### Initialise first stock count (200)
 PUT {{inventory}}/{{firstProductId}}
 Content-Type: application/json
@@ -35,12 +46,15 @@ Content-Type: application/json
 
 {"onHand":10,"reason":"Opening stock count"}
 
-### Create multi-item order (201 Confirmed); repeat unchanged for 200 replay
+### Create multi-item order (201 Confirmed); copy orderId into confirmedOrderId; repeat unchanged for 200 replay
 POST {{orders}}
 Content-Type: application/json
 Idempotency-Key: {{orderKey}}
 
 {"items":[{"productId":"{{firstProductId}}","quantity":3},{"productId":"{{secondProductId}}","quantity":2}]}
+
+### Inspect saved reservation (200 Reserved); items contain original quantities 3 and 2, sorted by product ID
+GET {{inventory}}/reservations/{{confirmedOrderId}}
 
 ### First product: OnHand 20, Reserved 3, Available 17
 GET {{inventory}}/{{firstProductId}}
@@ -48,12 +62,15 @@ GET {{inventory}}/{{firstProductId}}
 ### Ledger: InitialStock then Reserve; order ID is the Reserve operation ID
 GET {{inventory}}/{{firstProductId}}/movements
 
-### Reject entire order (409); no partial hold on either item
+### Reject entire order (409); copy error orderId into rejectedOrderId; no partial hold on either item
 POST {{orders}}
 Content-Type: application/json
 Idempotency-Key: {{rejectedKey}}
 
 {"items":[{"productId":"{{firstProductId}}","quantity":18},{"productId":"{{secondProductId}}","quantity":1}]}
+
+### Read rejection (200 Rejected); original items 18 and 1; original first-product shortfall requested=18/available=17
+GET {{inventory}}/reservations/{{rejectedOrderId}}
 
 ### Receive 5 units (201); repeat unchanged for 200 without adding twice
 POST {{inventory}}/{{firstProductId}}/receipts
@@ -65,3 +82,38 @@ Content-Type: application/json
 GET {{inventory}}/{{firstProductId}}
 
 ### Replay rejected request above: still 409, even though stock now suffices
+POST {{orders}}
+Content-Type: application/json
+Idempotency-Key: {{rejectedKey}}
+
+{"items":[{"productId":"{{firstProductId}}","quantity":18},{"productId":"{{secondProductId}}","quantity":1}]}
+
+### Inspect rejected history again (200); quantities/shortfalls are unchanged after receipt
+GET {{inventory}}/reservations/{{rejectedOrderId}}
+
+### List orders requiring manual investigation (200 array; may be empty); status is a dropdown in Swagger
+GET {{orders}}?status=RequiresReview&offset=0&limit=100
+
+### Cancel confirmed order (200 Cancelled, or 202 CancellationPending if Inventory is uncertain)
+POST {{orders}}/{{confirmedOrderId}}/cancel
+Content-Type: application/json
+
+{"reason":"Customer cancelled before shipment"}
+
+### Replay cancellation (200 when completed); the originally accepted reason is retained
+POST {{orders}}/{{confirmedOrderId}}/cancel
+Content-Type: application/json
+
+{"reason":"Ignored replacement reason"}
+
+### Reconcile only cancellation (200 if Released verified, 202 if still uncertain); no request body
+POST {{orders}}/{{confirmedOrderId}}/reconcile-cancellation
+
+### Inspect Released history (200 after cancellation completes); items still say 3 and 2
+GET {{inventory}}/reservations/{{confirmedOrderId}}
+
+### First product after completed cancellation: OnHand 25, Reserved 0, Available 25
+GET {{inventory}}/{{firstProductId}}
+
+### Ledger: InitialStock, Reserve, StockReceipt, Release; Reserve and Release share the order ID
+GET {{inventory}}/{{firstProductId}}/movements

@@ -106,13 +106,14 @@ public sealed class OrdersController(OrderApplicationService orders) : Controlle
 
     [HttpGet]
     [EndpointSummary("List saved orders, optionally filtered by status.")]
-    [EndpointDescription("Use status=RequiresReview to find orders needing manual investigation. This endpoint never reconciles orders or changes stock.")]
+    [EndpointDescription("Use status=RequiresReview for manual investigation. Optional newestFirst=true returns recent orders first; the default remains oldest first. Filtering and sorting precede pagination. This read never reconciles orders or changes stock.")]
     [ProducesResponseType<IReadOnlyList<OrderResponse>>(200)]
     [ProducesResponseType<ValidationProblemDetails>(400)]
     public async Task<ActionResult<IReadOnlyList<OrderResponse>>> List(
         [FromQuery, RegularExpression("^(Pending|Confirmed|Rejected|RequiresReview|CancellationPending|Cancelled|Fulfilled)$")] string? status,
         CancellationToken cancellationToken, [FromQuery, Range(0, int.MaxValue)] int offset = 0,
-        [FromQuery, Range(1, 200)] int limit = 100) => Ok(await orders.ListAsync(status, offset, limit, cancellationToken));
+        [FromQuery, Range(1, 200)] int limit = 100, [FromQuery] bool newestFirst = false) =>
+        Ok(await orders.ListAsync(status, offset, limit, cancellationToken, newestFirst));
 
     [HttpGet("{id:guid}")]
     [EndpointSummary("View an order and its saved prices.")]
