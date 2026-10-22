@@ -7,17 +7,17 @@ import { Badge, ErrorBox } from "./ui";
   selector: "app-recovery",
   standalone: true,
   imports: [CommonModule, RouterLink, Badge, ErrorBox],
-  template: ` <section class="panel recovery">
-    <div class="panel-heading">
+  template: ` <details class="panel recovery">
+    <summary class="panel-heading history-heading">
       <div>
-        <h2>Saved requests</h2>
+        <h2>Request history</h2>
         <p>
-          Stored in this browser. Retries keep the original request identity and
-          payload.
+          Saved in this browser. Expand to inspect past requests or retry an
+          interrupted operation.
         </p>
       </div>
       <span class="count">{{ visible().length }}</span>
-    </div>
+    </summary>
     <app-error [message]="error() || commands.storageError()" />
     @if (!visible().length) {
       <p class="muted padded">No saved requests for this workspace yet.</p>
@@ -30,12 +30,31 @@ import { Badge, ErrorBox } from "./ui";
             <span class="mono">{{
               c.createdAt | date: "dd MMM, HH:mm" : "+0800"
             }}</span></span
-          ><app-badge [value]="c.state" />
+          ><app-badge
+            [value]="c.state"
+            [label]="c.state === 'archived' ? 'Historical' : ''"
+          />
         </summary>
         <p>{{ c.message }}</p>
         <dl>
-          <dt>Request key</dt>
-          <dd class="mono">{{ c.key }}</dd>
+          <dt>
+            {{
+              c.kind === "receipt"
+                ? "Operation ID"
+                : c.kind === "reservation"
+                  ? "Reservation ID"
+                  : "Request key"
+            }}
+          </dt>
+          <dd class="mono">
+            {{
+              c.kind === "receipt"
+                ? c.payload.operationId
+                : c.kind === "reservation"
+                  ? c.payload.reservationId
+                  : c.key
+            }}
+          </dd>
           @if (c.status) {
             <dt>Backend status</dt>
             <dd>{{ c.status }}</dd>
@@ -59,9 +78,17 @@ import { Badge, ErrorBox } from "./ui";
               >Inspect inventory</a
             >
           }
+          @if (c.kind === "reservation") {
+            <a
+              class="button secondary"
+              routerLink="/reservations"
+              [queryParams]="{ id: c.payload.reservationId }"
+              >Check reservation</a
+            >
+          }
           @if (
-            ["order", "receipt", "cancel"].includes(c.kind) &&
-            !["verified", "archived"].includes(c.state) &&
+            ["order", "receipt", "cancel", "reservation"].includes(c.kind) &&
+            c.state !== "verified" &&
             c.status !== "RequiresReview"
           ) {
             <button
@@ -90,18 +117,33 @@ import { Badge, ErrorBox } from "./ui";
               data before submitting another command.
             </p>
           }
-          @if (c.state === "verified") {
-            <button class="text-button" (click)="commands.archive(c.id)">
-              Hide local record
-            </button>
+          @if (c.kind === "stocktake" && c.state === "uncertain") {
+            @if (c.inventoryCheckedAt) {
+              <p class="muted">
+                Inventory checked manually
+                {{ c.inventoryCheckedAt | date: "dd MMM, HH:mm" : "+0800" }}.
+                The original request remains uncertain.
+              </p>
+              <button
+                class="text-button"
+                (click)="commands.recordInventoryCheck(c.id, false)"
+              >
+                Reopen inventory check
+              </button>
+            } @else {
+              <button
+                class="secondary"
+                [disabled]="commands.busy().includes(c.id)"
+                (click)="recordCheck(c)"
+              >
+                Record manual inventory check
+              </button>
+            }
           }
-          <button class="text-button" (click)="acknowledge(c)">
-            Acknowledge after investigation
-          </button>
         </div>
       </details>
     }
-  </section>`,
+  </details>`,
 })
 export class Recovery {
   commands = inject(Commands);
@@ -110,19 +152,7 @@ export class Recovery {
   visible = () =>
     this.commands
       .entries()
-      .filter(
-        (c) =>
-          c.state !== "archived" &&
-          (!this.kind() || this.kind().split(",").includes(c.kind)),
-      );
-  acknowledge(c: SavedCommand) {
-    if (
-      window.confirm(
-        "Hide this local recovery record after your investigation? This does not cancel the request, change stock or verify its outcome. Its saved payload stays in browser storage.",
-      )
-    )
-      this.commands.archive(c.id);
-  }
+      .filter((c) => !this.kind() || this.kind().split(",").includes(c.kind));
   async retry(c: SavedCommand, reconcile = false) {
     this.error.set("");
     try {
@@ -130,5 +160,13 @@ export class Recovery {
     } catch (e) {
       this.error.set((e as Error).message);
     }
+  }
+  recordCheck(c: SavedCommand) {
+    if (
+      window.confirm(
+        "Have you checked the current stock and movement ledger for this request? This records your manual check and permits a new physical count. It does not verify the original outcome, retry it, or remove this history. You can reopen the check later.",
+      )
+    )
+      this.commands.recordInventoryCheck(c.id, true);
   }
 }

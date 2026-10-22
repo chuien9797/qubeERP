@@ -6,6 +6,10 @@ import { Api, errorMessage } from "../core/api";
 import { Movement, Reservation } from "../core/models";
 import { Page, Badge, Loading, ErrorBox, Empty } from "../shared/ui";
 import { guidPattern } from "./inventory";
+import { ProductSelect } from "../shared/product-select";
+import { ReservationCreate } from "./reservation-create";
+import { Commands } from "../core/commands";
+import { Recovery } from "../shared/recovery";
 @Component({
   standalone: true,
   imports: [
@@ -17,117 +21,153 @@ import { guidPattern } from "./inventory";
     Loading,
     ErrorBox,
     Empty,
+    ReservationCreate,
+    Recovery,
   ],
   template: ` <app-page
-    section="RESERVATION AUDIT"
-    title="Reservations"
-    subtitle="Look up the original products and quantities behind an inventory reservation."
-    ><section class="panel">
-      <form class="toolbar" [formGroup]="form" (ngSubmit)="load()">
-        <label class="grow"
-          >Reservation / order ID<input
-            formControlName="id"
-            placeholder="Paste reservation or order UUID" /></label
-        ><button [disabled]="form.invalid || loading()">
-          Find reservation
-        </button>
-      </form>
-    </section>
-    <app-error [message]="error()" />
-    @if (loading()) {
-      <app-loading />
-    } @else if (record(); as r) {
+      section="RESERVATION AUDIT"
+      title="Reservations"
+      subtitle="Create a standalone stock hold or inspect an existing reservation."
+      ><button actions (click)="create()">＋ Create reservation</button>
       <section class="panel">
-        <div class="panel-heading">
-          <div>
-            <h2>Reservation details</h2>
-            <small class="mono">{{ r.reservationId }}</small>
-          </div>
-          <app-badge [value]="r.status" />
-        </div>
-        <div class="notice inset">
-          Original requested quantities are historical. Released or consumed
-          quantities do not represent current reserved stock.
-        </div>
-        @if (r.failureCode) {
-          <div class="notice danger inset">
-            Failure code: <strong>{{ r.failureCode }}</strong>
-          </div>
-        }
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Original product ID</th>
-                <th class="numeric">Requested quantity</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              @for (i of r.items; track i.productId) {
-                <tr>
-                  <td class="mono">{{ i.productId }}</td>
-                  <td class="numeric">{{ i.quantity | number }}</td>
-                  <td>
-                    <a
-                      routerLink="/inventory"
-                      [queryParams]="{ productId: i.productId }"
-                      >Current inventory ↗</a
-                    >
-                  </td>
-                </tr>
-              }
-            </tbody>
-          </table>
-        </div>
-        @if (!r.items.length) {
-          <p class="padded muted">
-            No original lines were returned by the backend.
-          </p>
-        }
-        @if (r.shortfalls.length) {
+        <form class="toolbar" [formGroup]="form" (ngSubmit)="load()">
+          <label class="grow"
+            >Reservation / order ID<input
+              formControlName="id"
+              placeholder="Paste reservation or order UUID" /></label
+          ><button [disabled]="form.invalid || loading()">
+            Find reservation
+          </button>
+        </form>
+      </section>
+      <app-error [message]="error()" />
+      @if (loading()) {
+        <app-loading />
+      } @else if (record(); as r) {
+        <section class="panel">
           <div class="panel-heading">
-            <h2>Recorded shortages</h2>
-            <span class="muted">At reservation evaluation</span>
+            <div>
+              <h2>Reservation details</h2>
+              <small class="mono">{{ r.reservationId }}</small>
+            </div>
+            <app-badge [value]="r.status" />
           </div>
+          <div class="notice inset">
+            Original requested quantities are historical. Released or consumed
+            quantities do not represent current reserved stock.
+          </div>
+          @if (r.failureCode) {
+            <div class="notice danger inset">
+              Failure code: <strong>{{ r.failureCode }}</strong>
+            </div>
+          }
           <div class="table-wrap">
             <table>
               <thead>
                 <tr>
-                  <th>Product ID</th>
-                  <th class="numeric">Requested</th>
-                  <th class="numeric">Available then</th>
+                  <th>Original product ID</th>
+                  <th class="numeric">Requested quantity</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
-                @for (s of r.shortfalls; track s.productId) {
+                @for (i of r.items; track i.productId) {
                   <tr>
-                    <td class="mono">{{ s.productId }}</td>
-                    <td class="numeric">{{ s.requested }}</td>
-                    <td class="numeric">{{ s.available }}</td>
+                    <td class="mono">{{ i.productId }}</td>
+                    <td class="numeric">{{ i.quantity | number }}</td>
+                    <td>
+                      <a
+                        routerLink="/inventory"
+                        [queryParams]="{ productId: i.productId }"
+                        >Current inventory ↗</a
+                      >
+                    </td>
                   </tr>
                 }
               </tbody>
             </table>
           </div>
-        }
-        <div class="panel-footer">
-          <a [routerLink]="['/orders', r.reservationId]">View related order ↗</a
-          ><span class="muted">This lookup is read-only.</span>
-        </div>
-      </section>
-    } @else if (!error()) {
-      <section class="panel">
-        <app-empty
-          title="Find a reservation"
-          text="Use an order ID or reservation ID to inspect the durable inventory outcome."
-        />
-      </section>
-    }
-  </app-page>`,
+          @if (!r.items.length) {
+            <p class="padded muted">
+              No original lines were returned by the backend.
+            </p>
+          }
+          @if (r.shortfalls.length) {
+            <div class="panel-heading">
+              <h2>Recorded shortages</h2>
+              <span class="muted">At reservation evaluation</span>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Product ID</th>
+                    <th class="numeric">Requested</th>
+                    <th class="numeric">Available then</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (s of r.shortfalls; track s.productId) {
+                    <tr>
+                      <td class="mono">{{ s.productId }}</td>
+                      <td class="numeric">{{ s.requested }}</td>
+                      <td class="numeric">{{ s.available }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          }
+          <div class="panel-footer">
+            <span [hidden]="!manual(r.reservationId)" class="muted"
+              >Standalone reservation · no sales order created</span
+            ><a
+              [hidden]="manual(r.reservationId)"
+              [routerLink]="['/orders', r.reservationId]"
+              >Look for related order ↗</a
+            ><span class="muted">This lookup is read-only.</span>
+          </div>
+        </section>
+      } @else if (!error()) {
+        <section class="panel">
+          <app-empty
+            title="Find a reservation"
+            text="Use an order ID or reservation ID to inspect the durable inventory outcome."
+          />
+        </section>
+      }
+      <app-recovery kind="reservation" />
+    </app-page>
+    @if (open()) {
+      <app-reservation-create
+        (closed)="open.set(false)"
+        (submitted)="created($event)"
+      />
+    }`,
 })
 export class Reservations {
   api = inject(Api);
+  commands = inject(Commands);
+  open = signal(false);
+  manual(id: string) {
+    return this.commands
+      .entries()
+      .some((c) => c.kind === "reservation" && c.payload.reservationId === id);
+  }
+  create() {
+    if (
+      this.commands.unresolved().some((c) => c.kind === "reservation") &&
+      !window.confirm(
+        "An earlier reservation is unresolved. A new reservation ID creates a separate stock hold. Continue with a separate reservation?",
+      )
+    )
+      return;
+    this.open.set(true);
+  }
+  created(id: string) {
+    this.form.patchValue({ id });
+    void this.load();
+  }
   fb = inject(FormBuilder);
   route = inject(ActivatedRoute);
   record = signal<Reservation | null>(null);
@@ -154,7 +194,10 @@ export class Reservations {
     this.record.set(null);
     try {
       const r = await this.api.reservation(this.form.getRawValue().id);
-      if (g === this.generation) this.record.set(r);
+      if (g === this.generation) {
+        this.record.set(r);
+        this.commands.observeReservation(r);
+      }
     } catch (e) {
       if (g === this.generation) this.error.set(errorMessage(e));
     } finally {
@@ -164,19 +207,33 @@ export class Reservations {
 }
 @Component({
   standalone: true,
-  imports: [CommonModule, ReactiveFormsModule, Page, Loading, ErrorBox, Empty],
+  imports: [
+    CommonModule,
+    ReactiveFormsModule,
+    Page,
+    Loading,
+    ErrorBox,
+    Empty,
+    ProductSelect,
+  ],
   template: ` <app-page
     section="AUDIT TRAIL"
     title="Stock movements"
     subtitle="A read-only, product-specific ledger of physical and reserved stock changes."
     ><section class="panel">
-      <form class="toolbar" [formGroup]="form" (ngSubmit)="offset = 0; load()">
-        <label class="grow"
-          >Product ID<input
-            formControlName="id"
-            placeholder="Paste product UUID" /></label
-        ><button [disabled]="form.invalid || loading()">Load ledger</button>
-      </form>
+      <div class="toolbar movement-picker">
+        <app-product-select
+          class="grow"
+          [selectedId]="form.controls.id.value"
+          (selected)="select($event)"
+        /><button
+          class="secondary"
+          [disabled]="form.invalid || loading()"
+          (click)="load()"
+        >
+          ↻ Refresh ledger
+        </button>
+      </div>
       <app-error [message]="error()" />
       @if (loading()) {
         <app-loading />
@@ -265,6 +322,18 @@ export class Movements {
   form = this.fb.nonNullable.group({
     id: ["", [Validators.required, Validators.pattern(guidPattern)]],
   });
+  select(id: string) {
+    this.form.patchValue({ id });
+    this.offset = 0;
+    this.rows.set([]);
+    this.more.set(false);
+    if (this.form.valid) void this.load();
+    else {
+      this.generation++;
+      this.loading.set(false);
+      this.error.set("");
+    }
+  }
   constructor() {
     this.route.queryParamMap.subscribe((q) => {
       const id = q.get("productId");

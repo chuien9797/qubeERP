@@ -93,8 +93,10 @@ export const guidPattern =
       @if (blocked()) {
         <div class="notice">
           An earlier stock command for this product is unresolved. Retry its
-          original saved request, or investigate and acknowledge it before
-          creating another adjustment or receipt.
+          original saved request. For an uncertain physical count, inspect the
+          stock and ledger, then record a manual inventory check in Request
+          history before creating a separate adjustment or receipt. The original
+          history is retained.
         </div>
       }
       @if (stock() || missing()) {
@@ -297,6 +299,7 @@ export class Inventory {
         (c) =>
           ["receipt", "stocktake"].includes(c.kind) &&
           c.target === this.id() &&
+          !c.inventoryCheckedAt &&
           ["prepared", "pending", "uncertain"].includes(c.state),
       );
   }

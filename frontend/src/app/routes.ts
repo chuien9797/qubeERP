@@ -29,10 +29,6 @@ export const routes: Routes = [
     path: "movements",
     loadComponent: () => import("./pages/records").then((m) => m.Movements),
   },
-  {
-    path: "status",
-    loadComponent: () => import("./pages/overview").then((m) => m.Status),
-  },
   { path: "", pathMatch: "full", redirectTo: "dashboard" },
   {
     path: "**",

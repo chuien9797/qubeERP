@@ -144,11 +144,21 @@ describe("Durable command recovery", () => {
     expect(commands.get(c.id)?.orderId).toBe("rejected-1");
     expect(commands.get(c.id)?.problem?.shortfalls?.[0].requested).toBe(8);
   });
-  it("does not resurrect an acknowledged local record when reading orders", async () => {
+  it("retains a previously archived request and verifies it against backend state", async () => {
     const c = commands.prepare("cancel", "o", { reason: "Duplicate" });
-    commands.archive(c.id);
-    commands.observeOrder({ orderId: "o", status: "Cancelled" } as any);
-    expect(commands.get(c.id)?.state).toBe("archived");
+    localStorage.setItem(
+      storageKey,
+      JSON.stringify([{ ...c, state: "archived" }]),
+    );
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [Commands, { provide: Api, useValue: api }],
+    });
+    const restored = TestBed.inject(Commands);
+    expect(restored.get(c.id)?.key).toBe(c.key);
+    expect(restored.get(c.id)?.payload).toEqual(c.payload);
+    restored.observeOrder({ orderId: "o", status: "Cancelled" } as any);
+    expect(restored.get(c.id)?.state).toBe("verified");
   });
   it("keeps backend reads usable when local cache updates fail", () => {
     commands.prepare("cancel", "o", { reason: "Duplicate" });
@@ -166,5 +176,79 @@ describe("Durable command recovery", () => {
     } finally {
       spy.mockRestore();
     }
+  });
+  it("replays manual reservations with the original ID and product quantities after a lost response", async () => {
+    const reservationId = crypto.randomUUID();
+    const payload = {
+      reservationId,
+      items: [
+        { productId: "p", quantity: 3 },
+        { productId: "q", quantity: 2 },
+      ],
+    };
+    const c = commands.prepare("reservation", reservationId, payload);
+    payload.items[0].quantity = 99;
+    api.command.mockRejectedValueOnce(new HttpErrorResponse({ status: 0 }));
+    await commands.run(c.id);
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [Commands, { provide: Api, useValue: api }],
+    });
+    const reloaded = TestBed.inject(Commands);
+    api.command.mockResolvedValueOnce(
+      new HttpResponse({
+        status: 200,
+        body: { reservationId, status: "Reserved" },
+      }),
+    );
+    await reloaded.run(c.id);
+    expect(api.command.mock.calls[0]).toEqual(api.command.mock.calls[1]);
+    expect(api.command.mock.calls[1][2]).toBe("/api/inventory/reservations");
+    expect(api.command.mock.calls[1][3].items[0].quantity).toBe(3);
+    expect(reloaded.get(c.id)?.state).toBe("verified");
+  });
+  it("verifies rejected manual reservations from a read while preserving original shortfalls", async () => {
+    const reservationId = crypto.randomUUID();
+    const c = commands.prepare("reservation", reservationId, {
+      reservationId,
+      items: [{ productId: "p", quantity: 7 }],
+    });
+    api.command.mockRejectedValue(
+      new HttpErrorResponse({
+        status: 409,
+        error: {
+          reservationId,
+          title: "Insufficient stock",
+          shortfalls: [{ productId: "p", requested: 7, available: 1 }],
+        },
+      }),
+    );
+    await commands.run(c.id);
+    commands.observeReservation({
+      reservationId,
+      status: "Rejected",
+      failureCode: "INSUFFICIENT_STOCK",
+      items: [{ productId: "p", quantity: 7 }],
+      shortfalls: [{ productId: "p", requested: 7, available: 1 }],
+    });
+    expect(commands.get(c.id)?.state).toBe("verified");
+    expect(commands.get(c.id)?.status).toBe("Rejected");
+    expect(commands.get(c.id)?.problem?.shortfalls?.[0].requested).toBe(7);
+  });
+  it("records a reversible stocktake review without removing history or verifying the outcome", async () => {
+    const c = commands.prepare("stocktake", "p", {
+      onHand: 10,
+      reason: "Count",
+    });
+    api.command.mockRejectedValue(new HttpErrorResponse({ status: 0 }));
+    await commands.run(c.id);
+    commands.recordInventoryCheck(c.id, true);
+    expect(commands.get(c.id)?.inventoryCheckedAt).toBeTruthy();
+    expect(commands.get(c.id)?.state).toBe("uncertain");
+    expect(commands.get(c.id)?.payload).toEqual(c.payload);
+    commands.recordInventoryCheck(c.id, false);
+    expect(commands.get(c.id)?.inventoryCheckedAt).toBeUndefined();
+    expect(commands.get(c.id)?.state).toBe("uncertain");
+    expect(api.command).toHaveBeenCalledTimes(1);
   });
 });

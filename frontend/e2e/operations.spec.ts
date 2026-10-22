@@ -1,6 +1,134 @@
 import { test, expect } from "@playwright/test";
 // These are live integration tests. They create uniquely named assessment products
 // and business records in the running local APIs; they never mock successful calls.
+test("manual multi-product reservations and product-ledger search use real backend data", async ({
+  page,
+  request,
+}) => {
+  const suffix = Date.now();
+  const products: any[] = [];
+  for (let i = 0; i < 2; i++) {
+    const r = await request.post("/gateway/products/api/products", {
+      data: {
+        sku: `MANUAL-${suffix}-${i}`,
+        name: `Manual hold ${i}`,
+        unitPrice: 5,
+      },
+    });
+    expect(r.status()).toBe(201);
+    const p = await r.json();
+    products.push(p);
+    expect(
+      (
+        await request.put("/gateway/inventory/api/inventory/" + p.id, {
+          data: { onHand: 15, reason: "Manual reservation UI test" },
+        })
+      ).ok(),
+    ).toBeTruthy();
+  }
+  await page.goto("/reservations");
+  await page.getByRole("button", { name: "Create reservation" }).click();
+  const dialog = page.getByRole("dialog");
+  const reservationId = await dialog
+    .getByLabel("Reservation ID", { exact: true })
+    .inputValue();
+  await dialog.getByLabel("Search product SKU or UUID").fill(products[0].sku);
+  await dialog.getByRole("button", { name: "Search", exact: true }).click();
+  await expect(
+    dialog.getByRole("combobox", { name: "Select product" }),
+  ).toHaveValue(products[0].id);
+  await dialog.getByLabel("Quantity", { exact: true }).fill("3");
+  await dialog.getByRole("button", { name: "Add product line" }).click();
+  const line = dialog.locator(".reservation-line").nth(1);
+  await line.getByLabel("Search product SKU or UUID").fill(products[1].id);
+  await line.getByRole("button", { name: "Search", exact: true }).click();
+  await expect(
+    line.getByRole("combobox", { name: "Select product" }),
+  ).toHaveValue(products[1].id);
+  await line.getByLabel("Quantity", { exact: true }).fill("2");
+  await dialog.getByRole("button", { name: "Reserve stock" }).click();
+  await expect(dialog).not.toBeVisible();
+  await expect(page.locator(".panel-heading app-badge").first()).toContainText(
+    "Reserved",
+  );
+  await expect(
+    page.getByText("Standalone reservation · no sales order created", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  const reservationBefore = await (
+    await request.get(
+      "/gateway/inventory/api/inventory/reservations/" + reservationId,
+    )
+  ).json();
+  expect(reservationBefore.items).toEqual(
+    expect.arrayContaining([
+      { productId: products[0].id, quantity: 3 },
+      { productId: products[1].id, quantity: 2 },
+    ]),
+  );
+  await page.locator(".history-heading").click();
+  await page.locator(".request summary").first().click();
+  await expect(
+    page.getByRole("button", { name: /hide|acknowledge/i }),
+  ).toHaveCount(0);
+  await expect(page.locator(".request pre").first()).toContainText(
+    reservationId,
+  );
+  // Previously hidden records from older UI versions remain accessible, with their original payload.
+  await page.evaluate(() => {
+    const records = JSON.parse(localStorage.getItem("qubeerp.commands.v1")!);
+    records[0].state = "archived";
+    localStorage.setItem("qubeerp.commands.v1", JSON.stringify(records));
+  });
+  await page.reload();
+  await page.locator(".history-heading").click();
+  await page.locator(".request summary").first().click();
+  await expect(page.locator(".request pre").first()).toContainText(
+    reservationId,
+  );
+  expect(
+    await (
+      await request.get(
+        "/gateway/inventory/api/inventory/reservations/" + reservationId,
+      )
+    ).json(),
+  ).toEqual(reservationBefore);
+  await page.goto("/movements");
+  await page.getByLabel("Search product SKU or UUID").fill(products[0].sku);
+  await page.getByRole("button", { name: "Search", exact: true }).click();
+  await expect(
+    page.getByRole("combobox", { name: "Select product" }),
+  ).toHaveValue(products[0].id);
+  await expect(page.getByRole("table")).toContainText(reservationId);
+  await page.getByLabel("Search product SKU or UUID").fill(products[1].id);
+  await page.getByRole("button", { name: "Search", exact: true }).click();
+  await expect(
+    page.getByRole("combobox", { name: "Select product" }),
+  ).toHaveValue(products[1].id);
+  await expect(page.getByRole("table")).toContainText(reservationId);
+  await page.screenshot({
+    path: "test-results/movements-product-picker.png",
+    fullPage: true,
+  });
+  for (let i = 0; i < 2; i++)
+    expect(
+      await (
+        await request.get("/gateway/inventory/api/inventory/" + products[i].id)
+      ).json(),
+    ).toMatchObject({ onHand: 15, reserved: i === 0 ? 3 : 2 });
+  // Release only these uniquely created standalone test holds through the existing API.
+  expect(
+    (
+      await request.post(
+        "/gateway/inventory/api/inventory/reservations/" +
+          reservationId +
+          "/release",
+        { data: { reason: "Completed standalone UI test" } },
+      )
+    ).status(),
+  ).toBe(200);
+});
 test("catalogue, counts, receipts, multi-item order, cancellation and historical reservation", async ({
   page,
   request,
@@ -22,6 +150,7 @@ test("catalogue, counts, receipts, multi-item order, cancellation and historical
   await expect(row).toHaveCount(1);
   await expect(row).toContainText("Active");
   await row.getByRole("link", { name: "View stock" }).click();
+  await expect(page).toHaveURL(/\/inventory\?productId=/);
   const productId = new URL(page.url()).searchParams.get("productId")!;
   await expect(
     page.getByRole("heading", { name: "Opening count" }),
@@ -166,7 +295,7 @@ test("catalogue, counts, receipts, multi-item order, cancellation and historical
     fullPage: true,
   });
 });
-test("dashboard, status dropdown, responsive navigation and genuine readiness", async ({
+test("dashboard, status tabs, removed chrome and responsive navigation", async ({
   page,
 }) => {
   const errors: string[] = [];
@@ -182,13 +311,13 @@ test("dashboard, status dropdown, responsive navigation and genuine readiness", 
   await page.goto("/orders");
   await expect(
     page
-      .getByRole("combobox", { name: "Status", exact: true })
-      .getByRole("option", { name: "RequiresReview", exact: true }),
-  ).toBeAttached();
-  await page.goto("/status");
+      .getByRole("group", { name: "Order status" })
+      .getByRole("button", { name: "Requires Review", exact: true }),
+  ).toBeVisible();
   await expect(
-    page.locator("app-badge").filter({ hasText: "ready" }),
-  ).toHaveCount(3);
+    page.getByRole("link", { name: "System status", exact: true }),
+  ).toHaveCount(0);
+  await expect(page.locator(".topbar")).toHaveCount(0);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("button", { name: "Toggle navigation" }).click();
   await page
@@ -254,10 +383,12 @@ test("a lost order response survives reload and retries without a second reserva
     .selectOption(product.id);
   await page.getByRole("button", { name: "Submit order" }).click();
   await expect(page.getByRole("dialog")).not.toBeVisible();
+  await page.locator(".history-heading").click();
   await expect(page.locator(".request app-badge").first()).toContainText(
     "uncertain",
   );
   await page.reload();
+  await page.locator(".history-heading").click();
   await page.locator(".request summary").first().click();
   await page
     .getByRole("button", { name: "Retry original request" })

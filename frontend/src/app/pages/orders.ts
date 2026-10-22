@@ -1,5 +1,5 @@
 import { DialogFocus } from "../shared/dialog-focus";
-import { Component, inject, signal, computed } from "@angular/core";
+import { Component, inject, signal } from "@angular/core";
 import { CommonModule } from "@angular/common";
 import { FormBuilder, ReactiveFormsModule, Validators } from "@angular/forms";
 import { RouterLink, Router } from "@angular/router";
@@ -28,26 +28,35 @@ import { Recovery } from "../shared/recovery";
       subtitle="Create multi-product orders and track backend-verified outcomes."
       ><button actions (click)="startDraft()">＋ Create order</button>
       <section class="panel">
-        <form
-          class="toolbar"
-          [formGroup]="filter"
-          (ngSubmit)="offset = 0; load()"
-        >
-          <label
-            >Status<select formControlName="status">
-              <option value="">All statuses</option>
-              @for (s of statuses; track s) {
-                <option [value]="s">{{ s }}</option>
-              }
-            </select></label
-          ><button class="secondary">Apply filter</button
-          ><span class="muted grow"
-            >Newest first · RequiresReview identifies orders needing manual
-            investigation.</span
-          ><button class="secondary" type="button" (click)="load()">
+        <div class="list-controls">
+          <div class="status-filters" role="group" aria-label="Order status">
+            <button
+              type="button"
+              [attr.aria-pressed]="filter.controls.status.value === ''"
+              [class.active]="filter.controls.status.value === ''"
+              (click)="selectStatus('')"
+            >
+              All
+            </button>
+            @for (s of statuses; track s) {
+              <button
+                type="button"
+                [attr.aria-pressed]="filter.controls.status.value === s"
+                [class.active]="filter.controls.status.value === s"
+                (click)="selectStatus(s)"
+              >
+                {{ statusLabel(s) }}
+              </button>
+            }
+          </div>
+          <button class="secondary" [disabled]="loading()" (click)="load()">
             ↻ Refresh
           </button>
-        </form>
+        </div>
+        <p class="filter-note">
+          Newest first. Requires review identifies orders needing manual
+          investigation.
+        </p>
         <app-error [message]="error()" />
         @if (loading()) {
           <app-loading />
@@ -58,9 +67,9 @@ import { Recovery } from "../shared/recovery";
                 <tr>
                   <th>Order reference</th>
                   <th>Created · MYT</th>
-                  <th>Status</th>
                   <th class="numeric">Lines</th>
                   <th class="numeric">Total</th>
+                  <th>Status</th>
                   <th></th>
                 </tr>
               </thead>
@@ -68,22 +77,29 @@ import { Recovery } from "../shared/recovery";
                 @for (o of rows(); track o.orderId) {
                   <tr>
                     <td>
-                      <a class="mono" [routerLink]="['/orders', o.orderId]"
+                      <a
+                        class="order-reference"
+                        [title]="o.orderId"
+                        [routerLink]="['/orders', o.orderId]"
                         >{{ o.orderId.slice(0, 8) }}…</a
                       >
                     </td>
-                    <td>
+                    <td class="order-date">
                       {{
                         o.createdAtUtc | date: "dd MMM yyyy, HH:mm" : "+0800"
                       }}
                     </td>
-                    <td><app-badge [value]="o.status" /></td>
                     <td class="numeric">{{ o.lines.length }}</td>
-                    <td class="numeric">
+                    <td class="numeric order-total">
                       {{ o.totalAmount | currency: "MYR" : "symbol-narrow" }}
                     </td>
+                    <td><app-badge [value]="o.status" /></td>
                     <td>
-                      <a [routerLink]="['/orders', o.orderId]">View order ↗</a>
+                      <a
+                        class="order-action"
+                        [routerLink]="['/orders', o.orderId]"
+                        >Details →</a
+                      >
                     </td>
                   </tr>
                 }
@@ -233,6 +249,14 @@ import { Recovery } from "../shared/recovery";
     }`,
 })
 export class Orders {
+  selectStatus(status: string) {
+    this.filter.controls.status.setValue(status);
+    this.offset = 0;
+    void this.load();
+  }
+  statusLabel(status: string) {
+    return status.replace(/([a-z])([A-Z])/g, "$1 $2");
+  }
   api = inject(Api);
   commands = inject(Commands);
   fb = inject(FormBuilder);

@@ -1,9 +1,9 @@
 import { Injectable, computed, signal, inject } from "@angular/core";
 import { Api, errorMessage, problemOf, unknownOutcome } from "./api";
-import { Order, Problem } from "./models";
+import { Order, Problem, Reservation } from "./models";
 
 export type CommandKind =
-  "order" | "cancel" | "receipt" | "stocktake" | "product";
+  "order" | "cancel" | "receipt" | "stocktake" | "product" | "reservation";
 export interface SavedCommand {
   id: string;
   kind: CommandKind;
@@ -23,6 +23,7 @@ export interface SavedCommand {
   message?: string;
   problem?: Problem;
   response?: any;
+  inventoryCheckedAt?: string;
 }
 export const storageKey = "qubeerp.commands.v1";
 @Injectable({ providedIn: "root" })
@@ -44,9 +45,14 @@ export class Commands {
             (c) =>
               c &&
               typeof c.id === "string" &&
-              ["order", "cancel", "receipt", "stocktake", "product"].includes(
-                c.kind,
-              ) &&
+              [
+                "order",
+                "cancel",
+                "receipt",
+                "stocktake",
+                "product",
+                "reservation",
+              ].includes(c.kind) &&
               c.payload &&
               typeof c.key === "string",
           )
@@ -115,11 +121,13 @@ export class Commands {
       const path =
         c.kind === "order"
           ? "/api/orders"
-          : c.kind === "cancel"
-            ? `/api/orders/${c.target}/${reconcile ? "reconcile-cancellation" : "cancel"}`
-            : c.kind === "product"
-              ? "/api/products"
-              : `/api/inventory/${c.target}${c.kind === "receipt" ? "/receipts" : ""}`;
+          : c.kind === "reservation"
+            ? "/api/inventory/reservations"
+            : c.kind === "cancel"
+              ? `/api/orders/${c.target}/${reconcile ? "reconcile-cancellation" : "cancel"}`
+              : c.kind === "product"
+                ? "/api/products"
+                : `/api/inventory/${c.target}${c.kind === "receipt" ? "/receipts" : ""}`;
       const response = await this.api.command(
         service,
         c.kind === "stocktake" ? "PUT" : "POST",
@@ -134,7 +142,11 @@ export class Commands {
           ? ["Confirmed", "Rejected", "Cancelled", "Fulfilled"].includes(status)
           : c.kind === "cancel"
             ? status === "Cancelled"
-            : response.status === 200 || response.status === 201;
+            : c.kind === "reservation"
+              ? ["Reserved", "Released", "Consumed", "Rejected"].includes(
+                  status,
+                )
+              : response.status === 200 || response.status === 201;
       this.update(id, {
         state: verified
           ? "verified"
@@ -168,9 +180,8 @@ export class Commands {
   observeOrder(order: Order) {
     const matching = this.entries().filter(
       (c) =>
-        c.state !== "archived" &&
-        (c.orderId === order.orderId ||
-          (c.kind === "cancel" && c.target === order.orderId)),
+        c.orderId === order.orderId ||
+        (c.kind === "cancel" && c.target === order.orderId),
     );
     for (const c of matching) {
       // A GET of Pending never proves reservation/release failed; review states never auto-retry.
@@ -197,7 +208,36 @@ export class Commands {
       }
     }
   }
-  archive(id: string) {
-    this.update(id, { state: "archived" });
+  observeReservation(reservation: Reservation) {
+    for (const c of this.entries().filter(
+      (c) =>
+        c.kind === "reservation" &&
+        c.payload.reservationId === reservation.reservationId,
+    )) {
+      if (
+        !["Reserved", "Released", "Consumed", "Rejected"].includes(
+          reservation.status,
+        )
+      )
+        continue;
+      try {
+        this.update(c.id, {
+          state: "verified",
+          status: reservation.status,
+          response: reservation,
+          message: "Reservation outcome verified by the backend.",
+        });
+      } catch {
+        break;
+      }
+    }
+  }
+  recordInventoryCheck(id: string, checked: boolean) {
+    const c = this.get(id);
+    if (!c || c.kind !== "stocktake" || c.state !== "uncertain") return;
+    // This records a reversible local review, not a verified backend outcome.
+    this.update(id, {
+      inventoryCheckedAt: checked ? new Date().toISOString() : undefined,
+    });
   }
 }

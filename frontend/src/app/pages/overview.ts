@@ -2,7 +2,7 @@ import { Component, inject, signal } from "@angular/core";
 import { CommonModule } from "@angular/common";
 import { RouterLink } from "@angular/router";
 import { Api, errorMessage } from "../core/api";
-import { Order, Readiness, Service } from "../core/models";
+import { Order } from "../core/models";
 import { Page, Badge, Loading, ErrorBox, Empty } from "../shared/ui";
 import { Recovery } from "../shared/recovery";
 @Component({
@@ -51,7 +51,7 @@ import { Recovery } from "../shared/recovery";
           backend. These are not all-time totals.
         </p>
       </div>
-      <a routerLink="/status">Check API readiness ↗</a>
+      <a routerLink="/orders">Browse orders ↗</a>
     </div>
     <app-error [message]="error()" />
     @if (loading()) {
@@ -153,99 +153,6 @@ export class Overview {
     } finally {
       this.loading.set(false);
     }
-  }
-}
-@Component({
-  standalone: true,
-  imports: [CommonModule, Page, Badge],
-  template: `<app-page
-    section="SERVICE READINESS"
-    title="System status"
-    subtitle="On-demand readiness checks for the three existing APIs."
-    ><button actions [disabled]="checking()" (click)="refresh()">
-      ↻ Refresh checks
-    </button>
-    <div class="status-grid">
-      @for (s of services(); track s.service) {
-        <section class="panel status-card">
-          <div class="status-top">
-            <span class="service-icon">{{
-              s.service === "products"
-                ? "◇"
-                : s.service === "inventory"
-                  ? "▤"
-                  : "▧"
-            }}</span
-            ><app-badge [value]="s.state" />
-          </div>
-          <h2>{{ names[s.service] }}</h2>
-          <p>Port {{ ports[s.service] }} · /health</p>
-          <div class="status-check">
-            Last checked<br /><strong>{{
-              s.checkedAt
-                ? (s.checkedAt | date: "dd MMM yyyy, HH:mm:ss" : "+0800")
-                : "Checking…"
-            }}</strong>
-          </div>
-          <a
-            [href]="
-              'http://localhost:' + ports[s.service] + '/swagger/index.html'
-            "
-            target="_blank"
-            rel="noopener"
-            >Open Swagger documentation ↗</a
-          >
-        </section>
-      }
-    </div>
-    <div class="notice">
-      Checks reflect the latest response from each readiness endpoint. They do
-      not measure historical uptime. If an API is unavailable, its dependent
-      features may also be unavailable.
-    </div></app-page
-  >`,
-})
-export class Status {
-  api = inject(Api);
-  names = {
-    products: "Product API",
-    inventory: "Inventory API",
-    orders: "Order API",
-  };
-  ports = { products: 5101, inventory: 5102, orders: 5103 };
-  checking = signal(false);
-  services = signal<Readiness[]>(
-    ["products", "inventory", "orders"].map((s) => ({
-      service: s as Service,
-      state: "checking",
-    })),
-  );
-  constructor() {
-    void this.refresh();
-  }
-  async refresh() {
-    if (this.checking()) return;
-    this.checking.set(true);
-    this.services.update((rows) =>
-      rows.map((s) => ({ ...s, state: "checking" })),
-    );
-    await Promise.all(
-      this.services().map(async (s) => {
-        let state: "ready" | "unavailable" = "unavailable";
-        try {
-          await this.api.health(s.service);
-          state = "ready";
-        } catch {}
-        this.services.update((rows) =>
-          rows.map((r) =>
-            r.service === s.service
-              ? { ...r, state, checkedAt: new Date().toISOString() }
-              : r,
-          ),
-        );
-      }),
-    );
-    this.checking.set(false);
   }
 }
 @Component({
