@@ -2,9 +2,11 @@ FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /source
 COPY global.json Directory.Build.props NuGet.Config ./
 COPY src/Shared.Contracts/Shared.Contracts.csproj src/Shared.Contracts/
+COPY src/Messaging/Messaging.csproj src/Messaging/
 COPY src/OrderService/OrderService.csproj src/OrderService/
 RUN dotnet restore src/OrderService/OrderService.csproj
 COPY src/Shared.Contracts/ src/Shared.Contracts/
+COPY src/Messaging/ src/Messaging/
 COPY src/OrderService/ src/OrderService/
 COPY src/ApiDocumentation/ src/ApiDocumentation/
 COPY src/HttpCommunication/ src/HttpCommunication/

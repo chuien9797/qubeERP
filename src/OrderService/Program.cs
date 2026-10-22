@@ -7,6 +7,8 @@ using OrderService.Data;
 using OrderService.OpenApi;
 using QubeERP.ApiDocumentation;
 using QubeERP.HttpCommunication;
+using QubeERP.Messaging;
+using OrderService.Messaging;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddDbContextFactory<OrderServiceContext>((services, options) =>
@@ -17,6 +19,16 @@ builder.Services.AddDbContextFactory<OrderServiceContext>((services, options) =>
 });
 builder.Services.AddHealthChecks().AddCheck<DatabaseHealthCheck>("database", timeout: TimeSpan.FromSeconds(5));
 builder.Services.AddScoped<OrderApplicationService>();
+builder.Services.AddOptions<OutboxSettings>().BindConfiguration("Outbox")
+    .Validate(value => value.PollIntervalSeconds is >= 1 and <= 30 && value.BatchSize is >= 1 and <= 100
+        && value.MaxBackoffSeconds is >= 2 and <= 300, "Invalid outbox polling settings.").ValidateOnStart();
+builder.Services.AddOptions<RabbitMqSettings>().BindConfiguration("RabbitMQ")
+    .Validate(value => value.OperationTimeoutSeconds is >= 1 and <= 30 && value.Port is >= 1 and <= 65535,
+        "Invalid RabbitMQ timeout or port.").ValidateOnStart();
+builder.Services.AddSingleton<IOrderEventPublisher>(services => new RabbitMqEventPublisher(
+    services.GetRequiredService<Microsoft.Extensions.Options.IOptions<RabbitMqSettings>>().Value));
+builder.Services.AddSingleton<OutboxDispatcher>();
+if (!builder.Environment.IsEnvironment("Testing")) builder.Services.AddHostedService<OutboxPublisherService>();
 builder.Services.AddHttpClient<IProductClient, ProductClient>(client =>
 {
     client.BaseAddress = new Uri(builder.Configuration["Services:Product"] ?? "http://localhost:5101");

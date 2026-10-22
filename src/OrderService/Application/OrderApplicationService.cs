@@ -6,6 +6,7 @@ using OrderService.Data;
 using OrderService.Domain;
 using Shared.Contracts.Inventory;
 using Shared.Contracts.Orders;
+using Shared.Contracts.Events;
 
 namespace OrderService.Application;
 
@@ -143,12 +144,28 @@ public sealed class OrderApplicationService(
             _ => "INVENTORY_UNEXPECTED_RESPONSE"
         };
         var details = result.Outcome == InventoryOutcome.Rejected ? JsonSerializer.Serialize(result.Shortfalls, JsonOptions) : null;
-        await using var database = await contexts.CreateDbContextAsync(cancellationToken);
-        var now = DateTimeOffset.UtcNow;
-        await database.Orders.Where(value => value.Id == id && value.Status == "Pending")
-            .ExecuteUpdateAsync(update => update.SetProperty(value => value.Status, status)
-                .SetProperty(value => value.FailureCode, code).SetProperty(value => value.FailureDetailsJson, details)
-                .SetProperty(value => value.UpdatedAtUtc, now), cancellationToken);
+        await using var strategyContext = await contexts.CreateDbContextAsync(cancellationToken);
+        await strategyContext.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
+        {
+            await using var database = await contexts.CreateDbContextAsync(cancellationToken);
+            await using var transaction = await database.Database.BeginTransactionAsync(cancellationToken);
+            var now = DateTimeOffset.UtcNow;
+            var changed = await database.Orders.Where(value => value.Id == id && value.Status == "Pending")
+                .ExecuteUpdateAsync(update => update.SetProperty(value => value.Status, status)
+                    .SetProperty(value => value.FailureCode, code).SetProperty(value => value.FailureDetailsJson, details)
+                    .SetProperty(value => value.UpdatedAtUtc, now), cancellationToken);
+            if (changed == 1 && status is "Confirmed" or "Rejected")
+            {
+                var message = new OrderIntegrationEvent(Guid.NewGuid(), "Order" + status, 1, id, status, now);
+                database.OutboxMessages.Add(new OutboxMessage
+                {
+                    Id = message.EventId, AggregateId = id, EventType = message.EventType, EventVersion = message.Version,
+                    PayloadJson = JsonSerializer.Serialize(message, JsonOptions), CreatedAtUtc = now, NextAttemptAtUtc = now
+                });
+                await database.SaveChangesAsync(cancellationToken);
+            }
+            await transaction.CommitAsync(cancellationToken);
+        });
     }
 
     private async Task<OrderResult> ReplayAsync(Order order, string fingerprint, CancellationToken cancellationToken)

@@ -69,11 +69,45 @@ services:
       ConnectionStrings__Database: Server=sqlserver;Database=OrderDb;User Id=qube_order;Password=${ORDER_DB_PASSWORD:?Run scripts/Initialize-LocalEnvironment.ps1};TrustServerCertificate=True;Connect Timeout=5
       Services__Product: http://product-service:8080
       Services__Inventory: http://inventory-service:8080
+      RabbitMQ__HostName: rabbitmq
+      RabbitMQ__UserName: ${RABBITMQ_USERNAME:-qubeerp}
+      RabbitMQ__Password: ${RABBITMQ_PASSWORD:?Run scripts/Initialize-LocalEnvironment.ps1}
     ports:
       - "127.0.0.1:5103:8080"
     depends_on:
       database-setup:
         condition: service_completed_successfully
 
+  rabbitmq:
+    image: rabbitmq:4.2-management
+    hostname: qubeerp-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:-qubeerp}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?Run scripts/Initialize-LocalEnvironment.ps1}
+    ports:
+      - "127.0.0.1:5672:5672"
+      - "127.0.0.1:15672:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "gosu", "rabbitmq", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 30s
+
+  order-event-worker:
+    build:
+      context: .
+      dockerfile: src/OrderEventWorker/Dockerfile
+    environment:
+      RabbitMQ__HostName: rabbitmq
+      RabbitMQ__UserName: ${RABBITMQ_USERNAME:-qubeerp}
+      RabbitMQ__Password: ${RABBITMQ_PASSWORD:?Run scripts/Initialize-LocalEnvironment.ps1}
+    depends_on:
+      rabbitmq:
+        condition: service_started
+
 volumes:
   sql-data:
+  rabbitmq-data:

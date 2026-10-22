@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
   <ItemGroup>
+    <ProjectReference Include="../Messaging/Messaging.csproj" />
     <Compile Include="../HttpCommunication/DependencyHttpConfiguration.cs" Link="Clients/DependencyHttpConfiguration.cs" />
     <Compile Include="../ApiDocumentation/SwaggerRequestBuilder.cs" Link="OpenApi/SwaggerRequestBuilder.cs" />
     <EmbeddedResource Include="../ApiDocumentation/request-builder.js" LogicalName="QubeERP.Swagger.request-builder.js" />

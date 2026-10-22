@@ -3,7 +3,7 @@ $envPath = Join-Path $PSScriptRoot '..\.env'
 [string[]]$lines = @(if (Test-Path -LiteralPath $envPath) { Get-Content -LiteralPath $envPath })
 $changed = $false
 
-foreach ($key in 'MSSQL_SA_PASSWORD', 'PRODUCT_DB_PASSWORD', 'INVENTORY_DB_PASSWORD', 'ORDER_DB_PASSWORD') {
+foreach ($key in 'MSSQL_SA_PASSWORD', 'PRODUCT_DB_PASSWORD', 'INVENTORY_DB_PASSWORD', 'ORDER_DB_PASSWORD', 'RABBITMQ_PASSWORD') {
     $index = -1
     for ($i = 0; $i -lt $lines.Count; $i++) {
         if ($lines[$i].StartsWith($key + '=')) { $index = $i; break }
@@ -22,8 +22,8 @@ foreach ($key in 'MSSQL_SA_PASSWORD', 'PRODUCT_DB_PASSWORD', 'INVENTORY_DB_PASSW
 
 if ($changed) {
     [IO.File]::WriteAllLines($envPath, [string[]]$lines)
-    Write-Output 'Generated missing local database credentials in .env. Existing credentials were preserved.'
+    Write-Output 'Generated missing local credentials in .env. Existing credentials were preserved.'
 }
 else {
-    Write-Output 'Local database credentials are already configured.'
+    Write-Output 'Local credentials are already configured.'
 }

@@ -1,6 +1,8 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/Shared.Contracts/Shared.Contracts.csproj" />
+    <Project Path="src/Messaging/Messaging.csproj" />
+    <Project Path="src/OrderEventWorker/OrderEventWorker.csproj" />
     <Project Path="src/ProductService/ProductService.csproj" />
     <Project Path="src/InventoryService/InventoryService.csproj" />
     <Project Path="src/OrderService/OrderService.csproj" />

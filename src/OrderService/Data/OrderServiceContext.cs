@@ -7,6 +7,7 @@ public sealed class OrderServiceContext(DbContextOptions<OrderServiceContext> op
 {
     public DbSet<Order> Orders => Set<Order>();
     public DbSet<OrderLine> OrderLines => Set<OrderLine>();
+    public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -46,5 +47,21 @@ public sealed class OrderServiceContext(DbContextOptions<OrderServiceContext> op
         line.Property(value => value.Name).HasMaxLength(200).IsRequired();
         line.Property(value => value.UnitPrice).HasPrecision(18, 2);
         line.Property(value => value.LineTotal).HasPrecision(18, 2);
+
+        var outbox = modelBuilder.Entity<OutboxMessage>();
+        outbox.ToTable("OutboxMessages", table =>
+        {
+            table.HasCheckConstraint("CK_OutboxMessages_Event", "[EventType] IN ('OrderConfirmed', 'OrderRejected') AND [EventVersion] = 1");
+            table.HasCheckConstraint("CK_OutboxMessages_Payload", "ISJSON([PayloadJson]) = 1");
+            table.HasCheckConstraint("CK_OutboxMessages_Attempts", "[AttemptCount] >= 0");
+        });
+        outbox.HasKey(value => value.Id);
+        outbox.Property(value => value.Id).ValueGeneratedNever();
+        outbox.Property(value => value.EventType).HasMaxLength(80).IsRequired();
+        outbox.Property(value => value.PayloadJson).IsRequired();
+        outbox.Property(value => value.LastError).HasMaxLength(300);
+        outbox.HasIndex(value => value.AggregateId).IsUnique();
+        outbox.HasIndex(value => new { value.NextAttemptAtUtc, value.CreatedAtUtc }).HasFilter("[PublishedAtUtc] IS NULL");
+        outbox.HasOne<Order>().WithMany().HasForeignKey(value => value.AggregateId).OnDelete(DeleteBehavior.Restrict);
     }
 }
