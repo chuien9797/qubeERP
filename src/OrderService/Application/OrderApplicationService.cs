@@ -25,12 +25,15 @@ public sealed class OrderApplicationService(
         return order is null ? null : ToResponse(order);
     }
 
-    public async Task<IReadOnlyList<OrderResponse>> ListAsync(string? status, int offset, int limit, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<OrderResponse>> ListAsync(string? status, int offset, int limit, CancellationToken cancellationToken,
+        bool newestFirst = false)
     {
         await using var database = await contexts.CreateDbContextAsync(cancellationToken);
         var query = database.Orders.AsNoTracking();
         if (status is not null) query = query.Where(order => order.Status == status);
-        var orders = await query.OrderBy(order => order.CreatedAtUtc).ThenBy(order => order.Id)
+        var sorted = newestFirst ? query.OrderByDescending(order => order.CreatedAtUtc).ThenByDescending(order => order.Id)
+            : query.OrderBy(order => order.CreatedAtUtc).ThenBy(order => order.Id);
+        var orders = await sorted
             .Skip(offset).Take(limit).Include(order => order.Lines).ToArrayAsync(cancellationToken);
         return orders.Select(ToResponse).ToArray();
     }

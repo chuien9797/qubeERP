@@ -14,7 +14,8 @@ public static class ApiDocumentationConfiguration
             Title = $"QubeErp {service} API",
             Version = "v1",
             Description = description + " Local assessment API. Swagger helpers run only in Development. "
-                + "Example GUIDs illustrate request shapes; choose existing products or use IDs returned by this API."
+                + "Example GUIDs illustrate request shapes; choose existing products or use IDs returned by this API. "
+                + "X-Malaysia-Time exposes response time at UTC+08:00. The HTTP Date header remains GMT and stored AtUtc fields remain UTC."
         });
         options.OperationFilter<ApiOperationDocumentation>();
         options.SchemaFilter<ApiSchemaDocumentation>();
@@ -34,7 +35,7 @@ public sealed class ApiOperationDocumentation : IOperationFilter
         }),
         ["ProductsController.List"] = new("ListProducts", new()
         {
-            ["200"] = "A page of products, including inactive records, ordered by creation time then ID. An empty page is an empty array."
+            ["200"] = "A page of products ordered by creation time then ID. Optional search matches SKU/name and isActive filters catalogue status before pagination. An empty page is an empty array. Stock availability is independent of Active status."
         }),
         ["ProductsController.Get"] = new("GetProduct", new()
         {
@@ -106,7 +107,7 @@ public sealed class ApiOperationDocumentation : IOperationFilter
         }),
         ["OrdersController.List"] = new("ListOrders", new()
         {
-            ["200"] = "Saved orders ordered by creation time and ID; filter status=RequiresReview for manual investigation. Read-only."
+            ["200"] = "Saved orders ordered by creation time and ID, or descending when newestFirst=true. Filter status=RequiresReview for manual investigation. Read-only."
         }),
         ["OrdersController.Create"] = new("CreateOrder", new()
         {
@@ -151,6 +152,36 @@ public sealed class ApiOperationDocumentation : IOperationFilter
             && conflict is OpenApiResponse { Content: not null } conflictResponse)
             foreach (var media in conflictResponse.Content.Values)
                 media.Example = JsonNode.Parse(conflictExample);
+
+        if (key == "ReservationsController.Get" && operation.Responses.TryGetValue("200", out var details)
+            && details is OpenApiResponse { Content: not null } detailsResponse)
+        {
+            foreach (var media in detailsResponse.Content.Values)
+            {
+                media.Example = null;
+                media.Examples = new Dictionary<string, IOpenApiExample>();
+                foreach (var state in new[] { "Reserved", "Released", "Consumed", "Rejected" })
+                {
+                    media.Examples[state] = new OpenApiExample
+                    {
+                        Summary = state == "Rejected" ? "Original request and persisted shortage"
+                            : state == "Reserved" ? "Original items held by the reservation"
+                            : state == "Released" ? "Original items after release; quantities remain historical"
+                            : "Original items in a recognized Consumed state; fulfilment is outside scope",
+                        Value = ApiSchemaDocumentation.ReservationExample(state)
+                    };
+                }
+            }
+        }
+
+        if (key is "OrdersController.Cancel" or "OrdersController.ReconcileCancellation")
+        {
+            var cancelled = JsonNode.Parse(ApiSchemaDocumentation.OrderResponseExample)!;
+            cancelled["status"] = "Cancelled";
+            cancelled["cancellationReason"] = "Customer cancelled before shipment";
+            SetResponseExample(operation, "200", cancelled);
+            SetResponseExample(operation, "202", JsonNode.Parse("""{"orderId":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb","status":"CancellationPending","statusUrl":"/api/orders/bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"}""")!);
+        }
 
         if (operation.Responses.TryGetValue("400", out var invalid) && invalid is OpenApiResponse validation)
             validation.Description = "Invalid input, including empty IDs, invalid quantities, duplicate items or pagination bounds where applicable. Validation problems include errors and traceId; errorCode identifies the failure.";
@@ -202,6 +233,9 @@ public sealed class ApiOperationDocumentation : IOperationFilter
                     : "System-generated product ID returned by product creation.",
                 "offset" => "Number of records to skip, starting at 0. Default 0.",
                 "limit" => "Page size from 1 to 200. Default 100.",
+                "search" => "Optional SKU/name substring, trimmed, at most 100 characters. Applied before pagination.",
+                "isActive" => "Optional catalogue Active filter; this does not filter inventory availability.",
+                "newestFirst" => "Set true for descending creation time and ID. Defaults to false for compatibility.",
                 _ => parameter.Description
             };
         }
@@ -221,10 +255,32 @@ public sealed class ApiOperationDocumentation : IOperationFilter
             }
         };
     }
+
+    private static void SetResponseExample(OpenApiOperation operation, string status, JsonNode example)
+    {
+        if (operation.Responses!.TryGetValue(status, out var value) && value is OpenApiResponse { Content: not null } response)
+            foreach (var media in response.Content.Values)
+                media.Example = example.DeepClone();
+    }
 }
 
 public sealed class ApiSchemaDocumentation : ISchemaFilter
 {
+    private const string ReservationDetailsExample = """{"reservationId":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb","status":"Reserved","failureCode":null,"shortfalls":[],"items":[{"productId":"11111111-1111-1111-1111-111111111111","quantity":3},{"productId":"22222222-2222-2222-2222-222222222222","quantity":2}]}""";
+    internal const string OrderResponseExample = """{"orderId":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb","status":"Confirmed","totalAmount":199.50,"lines":[{"productId":"11111111-1111-1111-1111-111111111111","sku":"MOUSE-01","name":"Wireless Mouse","unitPrice":59.90,"quantity":3,"lineTotal":179.70},{"productId":"22222222-2222-2222-2222-222222222222","sku":"PAD-01","name":"Mouse Pad","unitPrice":9.90,"quantity":2,"lineTotal":19.80}],"failureCode":null,"shortfalls":[],"createdAtUtc":"2026-10-22T00:00:00+00:00","updatedAtUtc":"2026-10-22T00:00:01+00:00","lastAttemptAtUtc":"2026-10-22T00:00:00+00:00","cancellationReason":null}""";
+
+    internal static JsonNode ReservationExample(string status)
+    {
+        var example = JsonNode.Parse(ReservationDetailsExample)!;
+        example["status"] = status;
+        if (status == "Rejected")
+        {
+            example["failureCode"] = "INSUFFICIENT_STOCK";
+            example["shortfalls"] = JsonNode.Parse("""[{"productId":"22222222-2222-2222-2222-222222222222","requested":2,"available":1}]""");
+        }
+        return example;
+    }
+
     public void Apply(IOpenApiSchema schema, SchemaFilterContext context)
     {
         if (schema is not OpenApiSchema mutable || mutable.Properties is null) return;
@@ -237,8 +293,8 @@ public sealed class ApiSchemaDocumentation : ISchemaFilter
             "ReceiveStockRequest" => """{"operationId":"cccccccc-cccc-cccc-cccc-cccccccccccc","quantity":5,"reason":"Supplier delivery"}""",
             "StockReceiptResponse" => """{"operationId":"cccccccc-cccc-cccc-cccc-cccccccccccc","productId":"11111111-1111-1111-1111-111111111111","quantity":5,"reason":"Supplier delivery","onHandAfter":15,"reservedAfter":3,"availableQuantityAfter":12,"createdAtUtc":"2026-10-22T00:00:00+00:00"}""",
             "ReservationResponse" => """{"reservationId":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb","status":"Reserved","failureCode":null,"shortfalls":[]}""",
-            "ReservationDetailsResponse" => """{"reservationId":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb","status":"Reserved","failureCode":null,"shortfalls":[],"items":[{"productId":"11111111-1111-1111-1111-111111111111","quantity":3},{"productId":"22222222-2222-2222-2222-222222222222","quantity":2}]}""",
-            "OrderResponse" => """{"orderId":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb","status":"Confirmed","totalAmount":199.50,"lines":[{"productId":"11111111-1111-1111-1111-111111111111","sku":"MOUSE-01","name":"Wireless Mouse","unitPrice":59.90,"quantity":3,"lineTotal":179.70},{"productId":"22222222-2222-2222-2222-222222222222","sku":"PAD-01","name":"Mouse Pad","unitPrice":9.90,"quantity":2,"lineTotal":19.80}],"failureCode":null,"shortfalls":[],"createdAtUtc":"2026-10-22T00:00:00+00:00","updatedAtUtc":"2026-10-22T00:00:01+00:00","lastAttemptAtUtc":"2026-10-22T00:00:00+00:00"}""",
+            "ReservationDetailsResponse" => ReservationDetailsExample,
+            "OrderResponse" => OrderResponseExample,
             "PendingOrderResponse" => """{"orderId":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb","status":"Pending","statusUrl":"/api/orders/bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"}""",
             "CancelOrderRequest" or "ReleaseReservationRequest" => """{"reason":"Customer cancelled before shipment"}""",
             _ => null

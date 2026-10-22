@@ -18,6 +18,34 @@ public sealed class OrderApiTests(OrderApiFixture fixture) : IClassFixture<Order
     private static OrderItemRequest Item(Guid id, int quantity = 1) => new() { ProductId = id, Quantity = quantity };
 
     [Fact]
+    public async Task NewestFirstIsOptionalAndReadOnly()
+    {
+        var product = Dependencies.AddProduct();
+        var ids = new List<Guid>();
+        for (var i = 0; i < 3; i++)
+        {
+            using var response = await fixture.PostAsync(NewKey(), Item(product));
+            response.EnsureSuccessStatusCode();
+            ids.Add((await response.Content.ReadFromJsonAsync<OrderResponse>())!.OrderId);
+        }
+        await using var database = fixture.CreateContext();
+        var start = DateTimeOffset.UtcNow.AddDays(100);
+        for (var i = 0; i < ids.Count; i++)
+        {
+            var id = ids[i]; var date = start.AddMinutes(i);
+            await database.Orders.Where(o => o.Id == id)
+                .ExecuteUpdateAsync(u => u.SetProperty(o => o.CreatedAtUtc, date));
+        }
+        var calls = Dependencies.InventoryCalls;
+        var page = await fixture.Client.GetFromJsonAsync<OrderResponse[]>("/api/orders?status=Confirmed&newestFirst=true&offset=1&limit=1");
+        Assert.Equal(ids[1], Assert.Single(page!).OrderId);
+        var newest = await fixture.Client.GetFromJsonAsync<OrderResponse[]>("/api/orders?status=Confirmed&newestFirst=true&limit=3");
+        Assert.Equal(ids.AsEnumerable().Reverse(), newest!.Select(o => o.OrderId));
+        Assert.Equal(calls, Dependencies.InventoryCalls);
+        Assert.All(await database.Orders.AsNoTracking().Where(o => ids.Contains(o.Id)).ToListAsync(), o => Assert.Equal("Confirmed", o.Status));
+    }
+
+    [Fact]
     public async Task T02_MultiItemOrderPersistsPricesBeforeCallingInventory()
     {
         var first = Dependencies.AddProduct(12.50m);

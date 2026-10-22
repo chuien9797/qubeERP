@@ -14,6 +14,34 @@ namespace ProductService.Tests;
 public sealed class ProductApiTests(ProductApiFixture fixture) : IClassFixture<ProductApiFixture>
 {
     [Fact]
+    public async Task SearchAndActiveFilterApplyBeforePaginationWithoutChangingProducts()
+    {
+        var prefix = "filter-" + Guid.NewGuid().ToString("N");
+        var created = new List<ProductResponse>();
+        for (var i = 0; i < 3; i++)
+        {
+            using var response = await fixture.Client.PostAsJsonAsync("/api/products",
+                new CreateProductRequest { Sku = prefix + i, Name = "Filter target " + i, UnitPrice = 2 });
+            response.EnsureSuccessStatusCode();
+            created.Add((await response.Content.ReadFromJsonAsync<ProductResponse>())!);
+        }
+        await using var database = fixture.CreateContext();
+        await database.Products.Where(p => p.Id == created[0].Id)
+            .ExecuteUpdateAsync(u => u.SetProperty(p => p.IsActive, false));
+        var before = await database.Products.AsNoTracking().Where(p => p.Sku.StartsWith(prefix.ToUpper()))
+            .OrderBy(p => p.CreatedAtUtc).ThenBy(p => p.Id).ToListAsync();
+        var page = await fixture.Client.GetFromJsonAsync<ProductResponse[]>(
+            $"/api/products?search={prefix}&isActive=true&offset=1&limit=1");
+        Assert.Equal(created[2].Id, Assert.Single(page!).Id);
+        var inactive = await fixture.Client.GetFromJsonAsync<ProductResponse[]>(
+            $"/api/products?search={prefix}&isActive=false");
+        Assert.Equal(created[0].Id, Assert.Single(inactive!).Id);
+        var after = await database.Products.AsNoTracking().Where(p => p.Sku.StartsWith(prefix.ToUpper()))
+            .OrderBy(p => p.CreatedAtUtc).ThenBy(p => p.Id).ToListAsync();
+        Assert.Equal(before.Select(p => (p.Id, p.IsActive, p.UpdatedAtUtc)), after.Select(p => (p.Id, p.IsActive, p.UpdatedAtUtc)));
+    }
+
+    [Fact]
     public async Task CreateNormalizesSkuAndNameAndIsRetrievable()
     {
         var sku = "mouse-" + Guid.NewGuid().ToString("N");

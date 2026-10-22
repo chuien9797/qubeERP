@@ -28,13 +28,14 @@ public sealed class ProductsController(CatalogueService catalogue, ILogger<Produ
 
     [HttpGet]
     [EndpointSummary("List products, including inactive products, in creation order.")]
-    [EndpointDescription("Use offset to skip products and limit to choose the page size, up to 200. Products are returned in creation order, including inactive products.")]
+    [EndpointDescription("Use offset and limit (up to 200) for pagination. Optional search matches SKU or name; optional isActive filters catalogue Active status, independently of stock availability. Filtering occurs before pagination. Defaults still return all products in creation order.")]
     [ProducesResponseType<IReadOnlyList<ProductResponse>>(StatusCodes.Status200OK)]
     [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<IReadOnlyList<ProductResponse>>> List(
         CancellationToken cancellationToken, [FromQuery, Range(0, int.MaxValue)] int offset = 0,
-        [FromQuery, Range(1, 200)] int limit = 100) =>
-        Ok(await catalogue.ListAsync(offset, limit, cancellationToken));
+        [FromQuery, Range(1, 200)] int limit = 100,
+        [FromQuery, StringLength(100)] string? search = null, [FromQuery] bool? isActive = null) =>
+        Ok(await catalogue.ListAsync(offset, limit, cancellationToken, search, isActive));
 
     [HttpGet("{id:guid}")]
     [EndpointSummary("View a product.")]
