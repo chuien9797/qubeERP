@@ -49,7 +49,7 @@ public sealed class DatabaseInfrastructureTests
         }.ConnectionString).ToArray();
         await VerifyDatabase<ProductServiceContext>(connections[0], "ProductDb", 2, 1,
             options => new ProductServiceContext(options));
-        await VerifyDatabase<InventoryServiceContext>(connections[1], "InventoryDb", 4, 4,
+        await VerifyDatabase<InventoryServiceContext>(connections[1], "InventoryDb", 5, 4,
             options => new InventoryServiceContext(options));
         await VerifyDatabase<OrderServiceContext>(connections[2], "OrderDb", 3, 3,
             options => new OrderServiceContext(options));

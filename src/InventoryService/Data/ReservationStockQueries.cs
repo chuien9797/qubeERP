@@ -7,6 +7,31 @@ namespace InventoryService.Data;
 
 internal static class ReservationStockQueries
 {
+    public static async Task<(int OnHand, int Reserved)> ReleaseAsync(
+        InventoryServiceContext database, Guid productId, int quantity, DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        await using var command = database.Database.GetDbConnection().CreateCommand();
+        command.Transaction = database.Database.CurrentTransaction!.GetDbTransaction();
+        command.CommandTimeout = 30;
+        command.CommandText = """
+            UPDATE dbo.StockItems
+            SET Reserved = Reserved - @Quantity, UpdatedAtUtc = @Now
+            OUTPUT inserted.OnHand, inserted.Reserved
+            WHERE ProductId = @ProductId AND Reserved >= @Quantity;
+            """;
+        command.Parameters.Add(new SqlParameter("@ProductId", SqlDbType.UniqueIdentifier) { Value = productId });
+        command.Parameters.Add(new SqlParameter("@Quantity", SqlDbType.Int) { Value = quantity });
+        command.Parameters.Add(new SqlParameter("@Now", SqlDbType.DateTimeOffset) { Value = now });
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+            throw new InvalidOperationException("The guarded release update failed; the entire release must roll back.");
+        var balance = (reader.GetInt32(0), reader.GetInt32(1));
+        if (await reader.ReadAsync(cancellationToken))
+            throw new InvalidOperationException("The release updated more than one stock row.");
+        return balance;
+    }
+
     public static async Task<int> ReadAvailableAsync(
         InventoryServiceContext database, Guid productId, CancellationToken cancellationToken)
     {

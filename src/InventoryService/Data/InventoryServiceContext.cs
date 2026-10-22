@@ -24,13 +24,15 @@ public sealed class InventoryServiceContext(DbContextOptions<InventoryServiceCon
             table.HasCheckConstraint("CK_StockMovements_Balances",
                 "[OnHandAfter] >= 0 AND [ReservedAfter] >= 0 AND [ReservedAfter] <= [OnHandAfter]");
             table.HasCheckConstraint("CK_StockMovements_Type",
-                "[MovementType] IN ('InitialStock', 'StockSet', 'Reserve', 'StockReceipt')");
+                "[MovementType] IN ('InitialStock', 'StockSet', 'Reserve', 'StockReceipt', 'Release')");
+            table.HasCheckConstraint("CK_StockMovements_Release",
+                "[MovementType] <> 'Release' OR ([OnHandDelta] = 0 AND [ReservedDelta] < 0 AND [Reason] IS NOT NULL AND LEN(LTRIM(RTRIM([Reason]))) > 0)");
             table.HasCheckConstraint("CK_StockMovements_Receipt",
                 "[MovementType] <> 'StockReceipt' OR ([OnHandDelta] > 0 AND [ReservedDelta] = 0 AND [Reason] IS NOT NULL AND LEN(LTRIM(RTRIM([Reason]))) > 0)");
         });
         movement.HasKey(item => item.Id);
         movement.Property(item => item.MovementType).HasMaxLength(24).IsRequired();
-        movement.Property(item => item.Reason).HasMaxLength(300);
+        movement.Property(item => item.Reason).HasMaxLength(500);
         movement.HasIndex(item => new { item.OperationId, item.ProductId, item.MovementType }).IsUnique();
         movement.HasIndex(item => new { item.ProductId, item.Id });
         movement.HasIndex(item => item.OperationId).HasDatabaseName("UX_StockMovements_ReceiptOperation")
@@ -39,11 +41,11 @@ public sealed class InventoryServiceContext(DbContextOptions<InventoryServiceCon
         var reservation = modelBuilder.Entity<Reservation>();
         reservation.ToTable("Reservations", table =>
         {
-            table.HasCheckConstraint("CK_Reservations_Status", "[Status] IN ('Processing', 'Reserved', 'Rejected')");
+            table.HasCheckConstraint("CK_Reservations_Status", "[Status] IN ('Processing', 'Reserved', 'Rejected', 'Released', 'Consumed')");
             table.HasCheckConstraint("CK_Reservations_Outcome", """
                 ([Status] = 'Rejected' AND [FailureCode] IS NOT NULL
                     AND [FailureCode] = 'INSUFFICIENT_STOCK' AND [FailureDetailsJson] IS NOT NULL)
-                OR ([Status] IN ('Processing', 'Reserved') AND [FailureCode] IS NULL AND [FailureDetailsJson] IS NULL)
+                OR ([Status] IN ('Processing', 'Reserved', 'Released', 'Consumed') AND [FailureCode] IS NULL AND [FailureDetailsJson] IS NULL)
                 """);
             table.HasCheckConstraint("CK_Reservations_FailureJson", "[FailureDetailsJson] IS NULL OR ISJSON([FailureDetailsJson]) = 1");
         });
