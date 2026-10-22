@@ -57,6 +57,8 @@ public sealed class OrdersController(OrderApplicationService orders) : Controlle
         {
             "Confirmed" when result.IsNew => CreatedAtAction(nameof(Get), new { id = order.OrderId }, order),
             "Confirmed" => Ok(order),
+            "Cancelled" or "Fulfilled" => Ok(order),
+            "CancellationPending" => Accepted(statusUrl, new PendingOrderResponse(order.OrderId, order.Status, statusUrl)),
             "Pending" => Accepted(statusUrl, new PendingOrderResponse(order.OrderId, order.Status, statusUrl)),
             "Rejected" when order.FailureCode == "INSUFFICIENT_STOCK" =>
                 OrderProblem(409, "Insufficient stock.", order.FailureCode, order),
@@ -64,6 +66,53 @@ public sealed class OrdersController(OrderApplicationService orders) : Controlle
             _ => throw new InvalidOperationException("Unexpected order status.")
         };
     }
+
+    [HttpPost("{id:guid}/cancel")]
+    [EndpointSummary("Cancel a confirmed order and release its reserved stock.")]
+    [EndpointDescription("Requires a reason of 1–500 characters. The first accepted reason is immutable. Replays use the same reservation identity and saved reason. 202 means release is uncertain; retry cancel or reconcile cancellation. Pending orders must reconcile their initial reservation first. Inventory contradictions require manual review.")]
+    [ProducesResponseType<OrderResponse>(200)]
+    [ProducesResponseType<PendingOrderResponse>(202)]
+    [ProducesResponseType<ValidationProblemDetails>(400)]
+    [ProducesResponseType<ProblemDetails>(404)]
+    [ProducesResponseType<ProblemDetails>(409)]
+    public async Task<ActionResult<OrderResponse>> Cancel(Guid id, CancelOrderRequest request, CancellationToken cancellationToken) =>
+        CancellationResponse(await orders.CancelAsync(id, request.Reason!, cancellationToken));
+
+    [HttpPost("{id:guid}/reconcile-cancellation")]
+    [EndpointSummary("Recover an uncertain cancellation using the original reservation.")]
+    [EndpointDescription("Queries Inventory first. Verified Released completes cancellation; Reserved re-drives release with the saved reason and original ID. Timeouts remain CancellationPending. RequiresReview never transitions automatically. Initial Pending reservation recovery remains the original order POST.")]
+    [ProducesResponseType<OrderResponse>(200)]
+    [ProducesResponseType<PendingOrderResponse>(202)]
+    [ProducesResponseType<ProblemDetails>(404)]
+    [ProducesResponseType<ProblemDetails>(409)]
+    public async Task<ActionResult<OrderResponse>> ReconcileCancellation(Guid id, CancellationToken cancellationToken) =>
+        CancellationResponse(await orders.ReconcileCancellationAsync(id, cancellationToken));
+
+    private ActionResult<OrderResponse> CancellationResponse(OrderResult result)
+    {
+        if (result.Order is null) return OrderProblem(404, "Order not found.", "ORDER_NOT_FOUND");
+        var order = result.Order;
+        if (order.Status == "Cancelled") return Ok(order);
+        if (order.Status == "CancellationPending")
+        {
+            var url = Url.Action(nameof(Get), new { id = order.OrderId })!;
+            return Accepted(url, new PendingOrderResponse(order.OrderId, order.Status, url));
+        }
+        return OrderProblem(409, order.Status == "Pending"
+            ? "Reconcile the reservation first."
+            : order.Status == "RequiresReview" ? "Cancellation requires manual review." : "Only a Confirmed order may start cancellation.",
+            result.ErrorCode ?? "ORDER_NOT_CANCELLABLE", order);
+    }
+
+    [HttpGet]
+    [EndpointSummary("List saved orders, optionally filtered by status.")]
+    [EndpointDescription("Use status=RequiresReview to find orders needing manual investigation. This endpoint never reconciles orders or changes stock.")]
+    [ProducesResponseType<IReadOnlyList<OrderResponse>>(200)]
+    [ProducesResponseType<ValidationProblemDetails>(400)]
+    public async Task<ActionResult<IReadOnlyList<OrderResponse>>> List(
+        [FromQuery, RegularExpression("^(Pending|Confirmed|Rejected|RequiresReview|CancellationPending|Cancelled|Fulfilled)$")] string? status,
+        CancellationToken cancellationToken, [FromQuery, Range(0, int.MaxValue)] int offset = 0,
+        [FromQuery, Range(1, 200)] int limit = 100) => Ok(await orders.ListAsync(status, offset, limit, cancellationToken));
 
     [HttpGet("{id:guid}")]
     [EndpointSummary("View an order and its saved prices.")]

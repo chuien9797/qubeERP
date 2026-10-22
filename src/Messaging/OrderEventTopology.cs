@@ -11,6 +11,7 @@ public static class OrderEventTopology
     {
         "OrderConfirmed" => "order.confirmed",
         "OrderRejected" => "order.rejected",
+        "OrderCancelled" => "order.cancelled",
         _ => throw new ArgumentException("Unsupported order event type.", nameof(eventType))
     };
 
@@ -20,5 +21,6 @@ public static class OrderEventTopology
         await channel.QueueDeclareAsync(Queue, durable: true, exclusive: false, autoDelete: false, cancellationToken: cancellationToken);
         await channel.QueueBindAsync(Queue, Exchange, "order.confirmed", cancellationToken: cancellationToken);
         await channel.QueueBindAsync(Queue, Exchange, "order.rejected", cancellationToken: cancellationToken);
+        await channel.QueueBindAsync(Queue, Exchange, "order.cancelled", cancellationToken: cancellationToken);
     }
 }

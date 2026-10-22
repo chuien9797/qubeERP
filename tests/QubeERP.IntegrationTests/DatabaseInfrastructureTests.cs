@@ -51,7 +51,7 @@ public sealed class DatabaseInfrastructureTests
             options => new ProductServiceContext(options));
         await VerifyDatabase<InventoryServiceContext>(connections[1], "InventoryDb", 5, 4,
             options => new InventoryServiceContext(options));
-        await VerifyDatabase<OrderServiceContext>(connections[2], "OrderDb", 3, 3,
+        await VerifyDatabase<OrderServiceContext>(connections[2], "OrderDb", 4, 3,
             options => new OrderServiceContext(options));
 
         var tables = new[] { "ProductDb.dbo.Products", "InventoryDb.dbo.StockItems", "OrderDb.dbo.Orders" };

@@ -27,6 +27,10 @@ namespace OrderService.Data.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<string>("CancellationReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
                     b.Property<DateTimeOffset>("CreatedAtUtc")
                         .HasColumnType("datetimeoffset");
 
@@ -69,13 +73,15 @@ namespace OrderService.Data.Migrations
 
                     b.ToTable("Orders", null, t =>
                         {
+                            t.HasCheckConstraint("CK_Orders_CancellationReason", "[Status] NOT IN ('CancellationPending', 'Cancelled') OR ([CancellationReason] IS NOT NULL AND LEN(LTRIM(RTRIM([CancellationReason]))) > 0)");
+
                             t.HasCheckConstraint("CK_Orders_FailureJson", "[FailureDetailsJson] IS NULL OR ISJSON([FailureDetailsJson]) = 1");
 
                             t.HasCheckConstraint("CK_Orders_Key", "LEN([IdempotencyKey]) > 0");
 
-                            t.HasCheckConstraint("CK_Orders_Outcome", "([Status] IN ('Pending', 'Confirmed') AND [FailureCode] IS NULL AND [FailureDetailsJson] IS NULL)\nOR ([Status] = 'Rejected' AND [FailureCode] IS NOT NULL AND\n    (([FailureCode] = 'INSUFFICIENT_STOCK' AND [FailureDetailsJson] IS NOT NULL)\n    OR ([FailureCode] = 'INVENTORY_INVALID_REQUEST' AND [FailureDetailsJson] IS NULL)))\nOR ([Status] = 'RequiresReview' AND [FailureCode] IS NOT NULL)");
+                            t.HasCheckConstraint("CK_Orders_Outcome", "([Status] IN ('Pending', 'Confirmed', 'CancellationPending', 'Cancelled', 'Fulfilled') AND [FailureCode] IS NULL AND [FailureDetailsJson] IS NULL)\nOR ([Status] = 'Rejected' AND [FailureCode] IS NOT NULL AND\n    (([FailureCode] = 'INSUFFICIENT_STOCK' AND [FailureDetailsJson] IS NOT NULL)\n    OR ([FailureCode] = 'INVENTORY_INVALID_REQUEST' AND [FailureDetailsJson] IS NULL)))\nOR ([Status] = 'RequiresReview' AND [FailureCode] IS NOT NULL)");
 
-                            t.HasCheckConstraint("CK_Orders_Status", "[Status] IN ('Pending', 'Confirmed', 'Rejected', 'RequiresReview')");
+                            t.HasCheckConstraint("CK_Orders_Status", "[Status] IN ('Pending', 'Confirmed', 'Rejected', 'RequiresReview', 'CancellationPending', 'Cancelled', 'Fulfilled')");
 
                             t.HasCheckConstraint("CK_Orders_Total", "[TotalAmount] >= 0");
                         });
@@ -158,7 +164,7 @@ namespace OrderService.Data.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("AggregateId")
+                    b.HasIndex("AggregateId", "EventType")
                         .IsUnique();
 
                     b.HasIndex("NextAttemptAtUtc", "CreatedAtUtc")
@@ -168,7 +174,7 @@ namespace OrderService.Data.Migrations
                         {
                             t.HasCheckConstraint("CK_OutboxMessages_Attempts", "[AttemptCount] >= 0");
 
-                            t.HasCheckConstraint("CK_OutboxMessages_Event", "[EventType] IN ('OrderConfirmed', 'OrderRejected') AND [EventVersion] = 1");
+                            t.HasCheckConstraint("CK_OutboxMessages_Event", "[EventType] IN ('OrderConfirmed', 'OrderRejected', 'OrderCancelled') AND [EventVersion] = 1");
 
                             t.HasCheckConstraint("CK_OutboxMessages_Payload", "ISJSON([PayloadJson]) = 1");
                         });

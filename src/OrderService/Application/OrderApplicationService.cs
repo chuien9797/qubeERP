@@ -25,6 +25,79 @@ public sealed class OrderApplicationService(
         return order is null ? null : ToResponse(order);
     }
 
+    public async Task<IReadOnlyList<OrderResponse>> ListAsync(string? status, int offset, int limit, CancellationToken cancellationToken)
+    {
+        await using var database = await contexts.CreateDbContextAsync(cancellationToken);
+        var query = database.Orders.AsNoTracking();
+        if (status is not null) query = query.Where(order => order.Status == status);
+        var orders = await query.OrderBy(order => order.CreatedAtUtc).ThenBy(order => order.Id)
+            .Skip(offset).Take(limit).Include(order => order.Lines).ToArrayAsync(cancellationToken);
+        return orders.Select(ToResponse).ToArray();
+    }
+
+    public async Task<OrderResult> CancelAsync(Guid id, string reason, CancellationToken cancellationToken)
+    {
+        await using (var database = await contexts.CreateDbContextAsync(cancellationToken))
+        {
+            var now = DateTimeOffset.UtcNow;
+            await database.Orders.Where(order => order.Id == id && order.Status == "Confirmed")
+                .ExecuteUpdateAsync(update => update.SetProperty(order => order.Status, "CancellationPending")
+                    .SetProperty(order => order.CancellationReason, reason)
+                    .SetProperty(order => order.UpdatedAtUtc, now), cancellationToken);
+        }
+        var order = await GetAsync(id, cancellationToken);
+        if (order is null) return new OrderResult(ErrorCode: "ORDER_NOT_FOUND");
+        if (order.Status == "Cancelled") return new OrderResult(order);
+        if (order.Status != "CancellationPending") return new OrderResult(order, ErrorCode: "ORDER_NOT_CANCELLABLE");
+        // Always send the durably accepted reason, even when this caller lost the claim.
+        var result = await inventory.ReleaseAsync(id, order.CancellationReason!, cancellationToken);
+        await ApplyReleaseAsync(id, result, cancellationToken);
+        return new OrderResult(await GetAsync(id, cancellationToken),
+            ErrorCode: result.Outcome is InventoryOutcome.ReleaseConflict or InventoryOutcome.NotFound or InventoryOutcome.UnexpectedResponse
+                ? "CANCELLATION_REQUIRES_REVIEW" : null);
+    }
+
+    public async Task<OrderResult> ReconcileCancellationAsync(Guid id, CancellationToken cancellationToken)
+    {
+        var order = await GetAsync(id, cancellationToken);
+        if (order is null) return new OrderResult(ErrorCode: "ORDER_NOT_FOUND");
+        if (order.Status == "Cancelled") return new OrderResult(order);
+        if (order.Status != "CancellationPending") return new OrderResult(order, ErrorCode: "ORDER_NOT_CANCELLABLE");
+        var result = await inventory.GetReleaseStatusAsync(id, cancellationToken);
+        if (result.Outcome == InventoryOutcome.Reserved)
+            result = await inventory.ReleaseAsync(id, order.CancellationReason!, cancellationToken);
+        await ApplyReleaseAsync(id, result, cancellationToken);
+        return new OrderResult(await GetAsync(id, cancellationToken));
+    }
+
+    private async Task ApplyReleaseAsync(Guid id, InventoryResult result, CancellationToken cancellationToken)
+    {
+        if (result.Outcome == InventoryOutcome.Uncertain) return;
+        var status = result.Outcome == InventoryOutcome.Released ? "Cancelled" : "RequiresReview";
+        var code = status == "Cancelled" ? null : "CANCELLATION_INVENTORY_CONFLICT";
+        await using var strategyContext = await contexts.CreateDbContextAsync(cancellationToken);
+        await strategyContext.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
+        {
+            await using var database = await contexts.CreateDbContextAsync(cancellationToken);
+            await using var transaction = await database.Database.BeginTransactionAsync(cancellationToken);
+            var now = DateTimeOffset.UtcNow;
+            var changed = await database.Orders.Where(order => order.Id == id && order.Status == "CancellationPending")
+                .ExecuteUpdateAsync(update => update.SetProperty(order => order.Status, status)
+                    .SetProperty(order => order.FailureCode, code).SetProperty(order => order.UpdatedAtUtc, now), cancellationToken);
+            if (changed == 1 && status == "Cancelled")
+            {
+                var message = new OrderIntegrationEvent(Guid.NewGuid(), "OrderCancelled", 1, id, status, now);
+                database.OutboxMessages.Add(new OutboxMessage
+                {
+                    Id = message.EventId, AggregateId = id, EventType = message.EventType, EventVersion = message.Version,
+                    PayloadJson = JsonSerializer.Serialize(message, JsonOptions), CreatedAtUtc = now, NextAttemptAtUtc = now
+                });
+                await database.SaveChangesAsync(cancellationToken);
+            }
+            await transaction.CommitAsync(cancellationToken);
+        });
+    }
+
     public async Task<OrderResult> CreateAsync(string key, CreateOrderRequest request, CancellationToken cancellationToken)
     {
         var fingerprint = OrderFingerprint.Create(request.Items!);
@@ -210,5 +283,5 @@ public sealed class OrderApplicationService(
             new OrderLineResponse(line.ProductId, line.Sku, line.Name, line.UnitPrice, line.Quantity, line.LineTotal)).ToArray(),
         order.FailureCode, order.FailureDetailsJson is null ? []
             : JsonSerializer.Deserialize<StockShortfall[]>(order.FailureDetailsJson, JsonOptions)!,
-        order.CreatedAtUtc, order.UpdatedAtUtc, order.LastAttemptAtUtc);
+        order.CreatedAtUtc, order.UpdatedAtUtc, order.LastAttemptAtUtc, order.CancellationReason);
 }

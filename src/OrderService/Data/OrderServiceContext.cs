@@ -14,10 +14,12 @@ public sealed class OrderServiceContext(DbContextOptions<OrderServiceContext> op
         var order = modelBuilder.Entity<Order>();
         order.ToTable("Orders", table =>
         {
-            table.HasCheckConstraint("CK_Orders_Status", "[Status] IN ('Pending', 'Confirmed', 'Rejected', 'RequiresReview')");
+            table.HasCheckConstraint("CK_Orders_Status", "[Status] IN ('Pending', 'Confirmed', 'Rejected', 'RequiresReview', 'CancellationPending', 'Cancelled', 'Fulfilled')");
+            table.HasCheckConstraint("CK_Orders_CancellationReason",
+                "[Status] NOT IN ('CancellationPending', 'Cancelled') OR ([CancellationReason] IS NOT NULL AND LEN(LTRIM(RTRIM([CancellationReason]))) > 0)");
             table.HasCheckConstraint("CK_Orders_Total", "[TotalAmount] >= 0");
             table.HasCheckConstraint("CK_Orders_Outcome", """
-                ([Status] IN ('Pending', 'Confirmed') AND [FailureCode] IS NULL AND [FailureDetailsJson] IS NULL)
+                ([Status] IN ('Pending', 'Confirmed', 'CancellationPending', 'Cancelled', 'Fulfilled') AND [FailureCode] IS NULL AND [FailureDetailsJson] IS NULL)
                 OR ([Status] = 'Rejected' AND [FailureCode] IS NOT NULL AND
                     (([FailureCode] = 'INSUFFICIENT_STOCK' AND [FailureDetailsJson] IS NOT NULL)
                     OR ([FailureCode] = 'INVENTORY_INVALID_REQUEST' AND [FailureDetailsJson] IS NULL)))
@@ -34,6 +36,7 @@ public sealed class OrderServiceContext(DbContextOptions<OrderServiceContext> op
         order.Property(value => value.Status).HasMaxLength(24).IsRequired();
         order.Property(value => value.TotalAmount).HasPrecision(18, 2);
         order.Property(value => value.FailureCode).HasMaxLength(80);
+        order.Property(value => value.CancellationReason).HasMaxLength(500);
         order.HasMany(value => value.Lines).WithOne().HasForeignKey(value => value.OrderId).OnDelete(DeleteBehavior.Restrict);
 
         var line = modelBuilder.Entity<OrderLine>();
@@ -51,7 +54,7 @@ public sealed class OrderServiceContext(DbContextOptions<OrderServiceContext> op
         var outbox = modelBuilder.Entity<OutboxMessage>();
         outbox.ToTable("OutboxMessages", table =>
         {
-            table.HasCheckConstraint("CK_OutboxMessages_Event", "[EventType] IN ('OrderConfirmed', 'OrderRejected') AND [EventVersion] = 1");
+            table.HasCheckConstraint("CK_OutboxMessages_Event", "[EventType] IN ('OrderConfirmed', 'OrderRejected', 'OrderCancelled') AND [EventVersion] = 1");
             table.HasCheckConstraint("CK_OutboxMessages_Payload", "ISJSON([PayloadJson]) = 1");
             table.HasCheckConstraint("CK_OutboxMessages_Attempts", "[AttemptCount] >= 0");
         });
@@ -60,7 +63,7 @@ public sealed class OrderServiceContext(DbContextOptions<OrderServiceContext> op
         outbox.Property(value => value.EventType).HasMaxLength(80).IsRequired();
         outbox.Property(value => value.PayloadJson).IsRequired();
         outbox.Property(value => value.LastError).HasMaxLength(300);
-        outbox.HasIndex(value => value.AggregateId).IsUnique();
+        outbox.HasIndex(value => new { value.AggregateId, value.EventType }).IsUnique();
         outbox.HasIndex(value => new { value.NextAttemptAtUtc, value.CreatedAtUtc }).HasFilter("[PublishedAtUtc] IS NULL");
         outbox.HasOne<Order>().WithMany().HasForeignKey(value => value.AggregateId).OnDelete(DeleteBehavior.Restrict);
     }
