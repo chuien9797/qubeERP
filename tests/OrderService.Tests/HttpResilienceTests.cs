@@ -4,7 +4,9 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Hosting;
 using OrderService.Clients;
+using QubeERP.HttpCommunication;
 using Shared.Contracts.Inventory;
 using Shared.Contracts.Products;
 using Xunit;
@@ -186,13 +188,34 @@ public sealed class HttpResilienceTests
     [InlineData("ConnectTimeoutSeconds", "6")]
     [InlineData("MaxRetries", "4")]
     [InlineData("RetryDelayMilliseconds", "0")]
-    public void InvalidConfigurationFailsAtStartup(string setting, string value)
+    public async Task InvalidConfigurationFailsAtStartup(string setting, string value)
     {
-        using var dependencies = new DependencyStub();
-        using var factory = Factory(dependencies);
-        using var configured = factory.WithWebHostBuilder(builder => builder.ConfigureAppConfiguration((_, config) =>
-            config.AddInMemoryCollection(new Dictionary<string, string?> { [$"HttpClients:Product:{setting}"] = value })));
-        Assert.Throws<OptionsValidationException>(() => configured.Services);
+        var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings { DisableDefaults = true });
+        builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            [$"HttpClients:Product:{setting}"] = value
+        });
+        builder.Services.AddHttpClient("Product").ConfigureDependency("Product", retryProductLookups: true);
+        using var host = builder.Build();
+
+        var exception = await Assert.ThrowsAsync<OptionsValidationException>(() => host.StartAsync());
+        Assert.Equal("Product", exception.OptionsName);
+        Assert.Equal(typeof(DependencyHttpSettings), exception.OptionsType);
+    }
+
+    [Fact]
+    public async Task DefaultHttpConfigurationStartsSuccessfully()
+    {
+        var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings { DisableDefaults = true });
+        builder.Services.AddHttpClient("Product").ConfigureDependency("Product", retryProductLookups: true);
+        builder.Services.AddHttpClient("Inventory").ConfigureDependency("Inventory");
+        using var host = builder.Build();
+
+        await host.StartAsync();
+        var options = host.Services.GetRequiredService<IOptionsMonitor<DependencyHttpSettings>>();
+        Assert.Equal(5, options.Get("Product").RequestTimeoutSeconds);
+        Assert.Equal(2, options.Get("Inventory").ConnectTimeoutSeconds);
+        await host.StopAsync();
     }
 
     private static OrderApiFactory Factory(DependencyStub dependencies) => new(

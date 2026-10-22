@@ -7,6 +7,7 @@ namespace InventoryService.Controllers;
 
 [ApiController]
 [Route("api/inventory")]
+[Tags("Inventory")]
 [RequestSizeLimit(65536)]
 public sealed class InventoryController(StockService stock, ILogger<InventoryController> logger) : ControllerBase
 {
@@ -15,6 +16,7 @@ public sealed class InventoryController(StockService stock, ILogger<InventoryCon
     [EndpointDescription("Choose a product, enter its total physical quantity and give a reason. This replaces the previous count; it does not add a quantity. Use POST receipts to add newly received stock instead. Reserved stock stays unchanged, so the new count cannot be lower than Reserved. A product must exist before its first stock count is created.")]
     [ProducesResponseType<InventoryResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status422UnprocessableEntity)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status503ServiceUnavailable)]
@@ -49,6 +51,7 @@ public sealed class InventoryController(StockService stock, ILogger<InventoryCon
     [EndpointSummary("Check a product's stock balance.")]
     [EndpointDescription("Choose a product to see OnHand, Reserved and AvailableQuantity. AvailableQuantity equals OnHand minus Reserved. A product without an initial stock count returns 404.")]
     [ProducesResponseType<InventoryResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<InventoryResponse>> Get(Guid productId, CancellationToken cancellationToken)
     {
@@ -68,8 +71,9 @@ public sealed class InventoryController(StockService stock, ILogger<InventoryCon
 
     [HttpGet("{productId:guid}/movements")]
     [EndpointSummary("View a product's stock movements.")]
-    [EndpointDescription("Choose a product to see its stock-count changes and reservations, oldest first. Reservations increase Reserved and leave physical OnHand unchanged. Use offset and limit to page through the results.")]
+    [EndpointDescription("Choose a product to see opening stock, stocktake corrections, receipts and reservations, oldest first by movement ID. Reservations increase Reserved and leave physical OnHand unchanged. Movement IDs identify audit rows, not orders. A Reserve movement uses the order/reservation ID as operationId. Use offset and limit to page through the results.")]
     [ProducesResponseType<IReadOnlyList<StockMovementResponse>>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<IReadOnlyList<StockMovementResponse>>> Movements(
         Guid productId, CancellationToken cancellationToken,

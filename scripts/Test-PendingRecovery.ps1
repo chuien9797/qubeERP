@@ -78,7 +78,7 @@ try {
     if ($shortage.errorCode -ne 'INSUFFICIENT_STOCK' -or $shortage.shortfalls[0].available -ne 6) { throw 'Unexpected durable shortage.' }
     $null = Send-Json 'PUT' "$inventory/$first" @{ onHand = 20; reason = 'Restock after durable rejection' }
     $recovered = Send-Json 'POST' $orders $rejectedBody 409 $rejectedKey
-    if ($recovered.orderId -ne $rejected.orderId -or $recovered.status -ne 'Rejected' -or $recovered.shortfalls[0].available -ne 6) {
+    if ($recovered.orderId -ne $rejected.orderId -or $recovered.orderStatus -ne 'Rejected' -or $recovered.shortfalls[0].available -ne 6) {
         throw 'Recovery did not retain the original rejection after restock.'
     }
     Write-Output 'Durable Rejected outcome after restock: same-key POST returns original 409 and available=6'

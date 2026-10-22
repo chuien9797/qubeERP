@@ -49,6 +49,10 @@ public sealed class OrderValidationTests
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal("application/problem+json", response.Content.Headers.ContentType!.MediaType);
         using var problem = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var properties = problem.RootElement.EnumerateObject().ToArray();
+        Assert.Equal(properties.Length, properties.Select(property => property.Name).Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal(400, problem.RootElement.GetProperty("status").GetInt32());
+        Assert.False(problem.RootElement.TryGetProperty("orderStatus", out _));
         Assert.True(problem.RootElement.TryGetProperty("traceId", out _));
         Assert.Equal(0, dependencies.ProductCalls);
         Assert.Equal(0, dependencies.InventoryCalls);

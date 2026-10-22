@@ -58,7 +58,7 @@ try {
     $body = @{ items = @(@{ productId = $first; quantity = 3 }, @{ productId = $second; quantity = 2 }) }
     $rejectedKey = 'shortage-' + [Guid]::NewGuid().ToString('N')
     $rejected = Send-Json 'POST' $orders $body 409 $rejectedKey
-    if ($rejected.errorCode -ne 'INSUFFICIENT_STOCK' -or $rejected.status -ne 'Rejected') { throw 'Order did not persist its rejection.' }
+    if ($rejected.errorCode -ne 'INSUFFICIENT_STOCK' -or $rejected.status -ne 409 -or $rejected.orderStatus -ne 'Rejected') { throw 'Order did not persist its rejection.' }
     foreach ($product in @($first, $second)) {
         $stock = Send-Json 'GET' "$inventory/$product" $null
         $ledger = @(Send-Json 'GET' "$inventory/$product/movements" $null)

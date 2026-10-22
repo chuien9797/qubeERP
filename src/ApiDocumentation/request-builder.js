@@ -297,7 +297,7 @@
                             const kind = body.orderId ? "orders" : body.reservationId ? "reservations" : null;
                             if (kind) {
                                 const id = body.orderId || body.reservationId;
-                                recent[kind] = [{ id, status: body.status || response.status }, ...recent[kind].filter(item => item.id !== id)].slice(0, 20);
+                                recent[kind] = [{ id, status: body.orderStatus || body.status || response.status }, ...recent[kind].filter(item => item.id !== id)].slice(0, 20);
                                 window.dispatchEvent(new Event("qube-recent-changed"));
                             }
                             if (path === "/api/products" && method === "post" && response.status === 201) catalogue = undefined;

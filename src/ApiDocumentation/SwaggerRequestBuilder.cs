@@ -17,7 +17,7 @@ public static class SwaggerRequestBuilder
 
     public static void UseRequestBuilder(this SwaggerUIOptions options, string service)
     {
-        options.DocumentTitle = $"QubeERP {service}";
+        options.DocumentTitle = $"QubeErp {service} API";
         options.InjectJavascript($"request-builder.js?service={service}");
         options.InjectStylesheet("request-builder.css");
         options.ConfigObject.AdditionalItems["plugins"] = new[] { "QubeSwaggerPlugin" };

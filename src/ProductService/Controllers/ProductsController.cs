@@ -7,6 +7,7 @@ namespace ProductService.Controllers;
 
 [ApiController]
 [Route("api/products")]
+[Tags("Products")]
 [RequestSizeLimit(65536)]
 public sealed class ProductsController(CatalogueService catalogue, ILogger<ProductsController> logger) : ControllerBase
 {

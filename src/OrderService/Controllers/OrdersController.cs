@@ -7,6 +7,7 @@ namespace OrderService.Controllers;
 
 [ApiController]
 [Route("api/orders")]
+[Tags("Orders")]
 [RequestSizeLimit(65536)]
 public sealed class OrdersController(OrderApplicationService orders) : ControllerBase
 {
@@ -84,7 +85,7 @@ public sealed class OrdersController(OrderApplicationService orders) : Controlle
         if (order is not null)
         {
             problem.Extensions["orderId"] = order.OrderId;
-            problem.Extensions["status"] = order.Status;
+            problem.Extensions["orderStatus"] = order.Status;
             problem.Extensions["statusUrl"] = Url.Action(nameof(Get), new { id = order.OrderId });
             if (order.FailureCode == "INSUFFICIENT_STOCK")
             {

@@ -33,7 +33,11 @@ builder.Services.AddControllers().ConfigureApiBehaviorOptions(options =>
 });
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerRequestBuilder(builder.Configuration);
-builder.Services.AddSwaggerGen(options => options.SchemaFilter<ProductExamples>());
+builder.Services.AddSwaggerGen(options =>
+{
+    options.AddQubeApiDocumentation("Products", "Create and retrieve catalogue products. Product creation does not initialise inventory.");
+    options.SchemaFilter<ProductExamples>();
+});
 builder.Services.AddProblemDetails(options => options.CustomizeProblemDetails = context =>
 {
     context.ProblemDetails.Extensions.TryAdd("traceId", context.HttpContext.TraceIdentifier);

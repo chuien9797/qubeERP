@@ -43,7 +43,11 @@ builder.Services.AddControllers().ConfigureApiBehaviorOptions(options =>
 });
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerRequestBuilder(builder.Configuration);
-builder.Services.AddSwaggerGen(options => options.SchemaFilter<InventoryExamples>());
+builder.Services.AddSwaggerGen(options =>
+{
+    options.AddQubeApiDocumentation("Inventory", "Maintain physical counts, receive stock and reserve multiple products atomically. Confirmed orders hold stock without shipping it.");
+    options.SchemaFilter<InventoryExamples>();
+});
 builder.Services.AddProblemDetails(options => options.CustomizeProblemDetails = context =>
 {
     context.ProblemDetails.Extensions.TryAdd("traceId", context.HttpContext.TraceIdentifier);

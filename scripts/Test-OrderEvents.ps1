@@ -68,7 +68,7 @@ try {
     $rejectedBody = @{ items = @(@{ productId = $product.id; quantity = 20 }) }
     $confirmed = Send-EventJson 'POST' 'http://localhost:5103/api/orders' $confirmedBody 201 $confirmedKey
     $rejected = Send-EventJson 'POST' 'http://localhost:5103/api/orders' $rejectedBody 409 $rejectedKey
-    if ($confirmed.status -ne 'Confirmed' -or $rejected.status -ne 'Rejected') { throw 'Broker outage changed order outcomes.' }
+    if ($confirmed.status -ne 'Confirmed' -or $rejected.orderStatus -ne 'Rejected') { throw 'Broker outage changed order outcomes.' }
     $predicate = "AggregateId IN ('$([Guid]$confirmed.orderId)', '$([Guid]$rejected.orderId)')"
     if ((Read-EventCount "$predicate AND PublishedAtUtc IS NULL") -ne 2) { throw 'Outbox did not retain both unpublished events.' }
     Wait-EventCount "$predicate AND AttemptCount > 0 AND PublishedAtUtc IS NULL AND LastError IS NOT NULL" 2 45

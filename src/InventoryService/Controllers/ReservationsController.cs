@@ -6,6 +6,7 @@ namespace InventoryService.Controllers;
 
 [ApiController]
 [Route("api/inventory/reservations")]
+[Tags("Reservations")]
 [RequestSizeLimit(65536)]
 public sealed class ReservationsController(ReservationService reservations) : ControllerBase
 {
@@ -51,6 +52,7 @@ public sealed class ReservationsController(ReservationService reservations) : Co
     [EndpointSummary("Check a reservation's result.")]
     [EndpointDescription("Choose a recent reservation in Swagger or enter a known reservation ID. For an order reservation, use its order ID. Reading a reservation does not change stock.")]
     [ProducesResponseType<ReservationResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ReservationResponse>> Get(Guid reservationId, CancellationToken cancellationToken)
     {

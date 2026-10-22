@@ -55,7 +55,11 @@ builder.Services.AddControllers().ConfigureApiBehaviorOptions(options =>
 });
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerRequestBuilder(builder.Configuration);
-builder.Services.AddSwaggerGen(options => options.SchemaFilter<OrderExamples>());
+builder.Services.AddSwaggerGen(options =>
+{
+    options.AddQubeApiDocumentation("Orders", "Create multi-item orders with saved prices and stable request keys. Recover uncertain Pending outcomes by replaying the original POST.");
+    options.SchemaFilter<OrderExamples>();
+});
 builder.Services.AddProblemDetails(options => options.CustomizeProblemDetails = context =>
 {
     context.ProblemDetails.Extensions.TryAdd("traceId", context.HttpContext.TraceIdentifier);

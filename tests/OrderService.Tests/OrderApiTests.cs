@@ -137,6 +137,7 @@ public sealed class OrderApiTests(OrderApiFixture fixture) : IClassFixture<Order
             Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
             using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
             id = json.RootElement.GetProperty("orderId").GetGuid();
+            AssertOrderProblem(json.RootElement, HttpStatusCode.Conflict, "Rejected");
             Assert.NotNull(response.Headers.Location);
         }
         finally { Dependencies.InventoryResponse = null; }
@@ -147,6 +148,8 @@ public sealed class OrderApiTests(OrderApiFixture fixture) : IClassFixture<Order
         {
             using var replay = await fixture.PostAsync(key, Item(second, 2), Item(first, 3));
             Assert.Equal(HttpStatusCode.Conflict, replay.StatusCode);
+            using var replayJson = JsonDocument.Parse(await replay.Content.ReadAsStringAsync());
+            AssertOrderProblem(replayJson.RootElement, HttpStatusCode.Conflict, "Rejected");
             var saved = (await fixture.Client.GetFromJsonAsync<OrderResponse>($"/api/orders/{id}"))!;
             Assert.Equal("Rejected", saved.Status);
             Assert.Equal(1, Assert.Single(saved.Shortfalls).Available);
@@ -169,6 +172,7 @@ public sealed class OrderApiTests(OrderApiFixture fixture) : IClassFixture<Order
         Assert.Equal(HttpStatusCode.Conflict, conflict.StatusCode);
         using var json = JsonDocument.Parse(await conflict.Content.ReadAsStringAsync());
         Assert.Equal("IDEMPOTENCY_KEY_CONFLICT", json.RootElement.GetProperty("errorCode").GetString());
+        AssertOrderProblem(json.RootElement, HttpStatusCode.Conflict, "Confirmed");
         Assert.Equal(calls, Dependencies.ProductCalls);
         Assert.Equal(inventoryCalls, Dependencies.InventoryCalls);
     }
@@ -311,7 +315,7 @@ public sealed class OrderApiTests(OrderApiFixture fixture) : IClassFixture<Order
             using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
             id = json.RootElement.GetProperty("orderId").GetGuid();
             Assert.Equal(expectedCode, json.RootElement.GetProperty("errorCode").GetString());
-            Assert.Equal(expectedStatus, json.RootElement.GetProperty("status").GetString());
+            AssertOrderProblem(json.RootElement, HttpStatusCode.BadGateway, expectedStatus);
         }
         finally { Dependencies.InventoryResponse = null; }
         var saved = (await fixture.Client.GetFromJsonAsync<OrderResponse>($"/api/orders/{id}"))!;
@@ -434,6 +438,14 @@ public sealed class OrderApiTests(OrderApiFixture fixture) : IClassFixture<Order
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
         Assert.Equal(calls, Dependencies.InventoryCalls);
         Assert.Equal(products, Dependencies.ProductCalls);
+    }
+
+    private static void AssertOrderProblem(JsonElement problem, HttpStatusCode status, string orderStatus)
+    {
+        var properties = problem.EnumerateObject().ToArray();
+        Assert.Equal(properties.Length, properties.Select(property => property.Name).Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal((int)status, problem.GetProperty("status").GetInt32());
+        Assert.Equal(orderStatus, problem.GetProperty("orderStatus").GetString());
     }
 
     private async Task AssertAbsentAsync(string key)
