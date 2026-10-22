@@ -15,5 +15,7 @@ public sealed class ProductExamples : ISchemaFilter
             mutableSchema.Example = JsonNode.Parse("""{"sku":" mouse-01 ","name":"Wireless Mouse","description":"2.4 GHz","unitPrice":59.90}""");
         if (context.Type == typeof(ProductLookupRequest))
             mutableSchema.Example = JsonNode.Parse("""{"productIds":["11111111-1111-1111-1111-111111111111","22222222-2222-2222-2222-222222222222"]}""");
+        if (context.Type == typeof(UpdateProductStatusRequest))
+            mutableSchema.Example = JsonNode.Parse("""{"isActive":false}""");
     }
 }

@@ -8,6 +8,7 @@ import { Product, Stock } from "../core/models";
 import { Commands } from "../core/commands";
 import { Page, Badge, Empty, Loading, ErrorBox } from "../shared/ui";
 import { Recovery } from "../shared/recovery";
+import { ProductStatus } from "../core/product-status";
 @Component({
   standalone: true,
   imports: [
@@ -27,6 +28,10 @@ import { Recovery } from "../shared/recovery";
       title="Products"
       subtitle="Manage your catalogue and inspect live inventory availability."
       ><button actions (click)="open.set(true)">＋ Create product</button>
+      @if (statusMessage()) {
+        <div class="notice success" role="status">{{ statusMessage() }}</div>
+      }
+      <app-error [message]="statusError()" />
       <section class="panel">
         <form
           class="toolbar"
@@ -74,6 +79,22 @@ import { Recovery } from "../shared/recovery";
                     </td>
                     <td>
                       <app-badge [value]="p.isActive ? 'Active' : 'Inactive'" />
+                      <button
+                        class="text-button product-status-action"
+                        [disabled]="statusBusy().includes(p.id)"
+                        [attr.aria-label]="
+                          (p.isActive ? 'Deactivate ' : 'Reactivate ') + p.sku
+                        "
+                        (click)="changeStatus(p)"
+                      >
+                        {{
+                          statusBusy().includes(p.id)
+                            ? "Updating…"
+                            : p.isActive
+                              ? "Deactivate"
+                              : "Reactivate"
+                        }}
+                      </button>
                     </td>
                     <td class="numeric">
                       {{ p.unitPrice | currency: "MYR" : "symbol-narrow" }}
@@ -204,6 +225,36 @@ import { Recovery } from "../shared/recovery";
 export class Products {
   api = inject(Api);
   commands = inject(Commands);
+  productStatus = inject(ProductStatus);
+  statusBusy = signal<string[]>([]);
+  statusError = signal("");
+  statusMessage = signal("");
+  async changeStatus(product: Product) {
+    if (this.statusBusy().includes(product.id)) return;
+    const desired = !product.isActive;
+    const action = desired ? "Reactivate" : "Deactivate";
+    if (
+      !window.confirm(
+        `${action} ${product.sku} — ${product.name}? ${desired ? "This makes the product eligible for new order validation again." : "New orders that read its inactive status will be rejected. Already validated or Pending orders may still complete."} Existing stock, reservations, orders and history stay unchanged. Concurrent status commands use last committed write wins.`,
+      )
+    )
+      return;
+    this.statusBusy.update((ids) => [...ids, product.id]);
+    this.statusError.set("");
+    this.statusMessage.set("");
+    try {
+      const result = await this.productStatus.set(product.id, desired);
+      if (result.product)
+        this.rows.update((rows) =>
+          rows.map((p) => (p.id === product.id ? result.product! : p)),
+        );
+      if (result.outcome === "verified") this.statusMessage.set(result.message);
+      else this.statusError.set(result.message);
+      await this.load();
+    } finally {
+      this.statusBusy.update((ids) => ids.filter((id) => id !== product.id));
+    }
+  }
   fb = inject(FormBuilder);
   rows = signal<Product[]>([]);
   balances = signal<Record<string, Stock>>({});

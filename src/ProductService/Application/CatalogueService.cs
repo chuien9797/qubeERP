@@ -51,6 +51,15 @@ public sealed class CatalogueService(ProductServiceContext database)
         return products.Select(ToResponse).ToArray();
     }
 
+    public async Task<bool> SetStatusAsync(Guid id, bool isActive, CancellationToken cancellationToken)
+    {
+        // Atomic partial write; same-value requests do not change UpdatedAtUtc.
+        var changed = await database.Products.Where(product => product.Id == id && product.IsActive != isActive)
+            .ExecuteUpdateAsync(update => update.SetProperty(product => product.IsActive, isActive)
+                .SetProperty(product => product.UpdatedAtUtc, _ => DateTimeOffset.UtcNow), cancellationToken);
+        return changed > 0 || await database.Products.AnyAsync(product => product.Id == id, cancellationToken);
+    }
+
     public async Task<ProductLookupResponse> LookupAsync(Guid[] ids, CancellationToken cancellationToken)
     {
         var products = await database.Products.AsNoTracking().Where(value => ids.Contains(value.Id))

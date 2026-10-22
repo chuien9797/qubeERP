@@ -37,6 +37,21 @@ public sealed class ProductsController(CatalogueService catalogue, ILogger<Produ
         [FromQuery, StringLength(100)] string? search = null, [FromQuery] bool? isActive = null) =>
         Ok(await catalogue.ListAsync(offset, limit, cancellationToken, search, isActive));
 
+    [HttpPatch("{productId:guid}/status")]
+    [EndpointSummary("Activate or deactivate a catalogue product.")]
+    [EndpointDescription("Send an explicit JSON boolean isActive. Returns 204 for a changed status or a same-value no-op; read the product for its currently observed status. Only IsActive and, on a real change, UpdatedAtUtc are written. Concurrent commands use last committed write wins, without ETags or cross-service locking. Deactivation blocks new orders whose Product lookup observes inactive; an already validated or durably Pending order may still finish/recover. Existing inventory, reservations, orders and movements are untouched. Zero stock never changes Active status. Direct Inventory reservation commands are not gated by catalogue status.")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> SetStatus(Guid productId, UpdateProductStatusRequest request, CancellationToken cancellationToken)
+    {
+        if (productId == Guid.Empty)
+            return ProductProblem(StatusCodes.Status400BadRequest, "Product ID must not be empty.", "INVALID_PRODUCT_ID");
+        if (!await catalogue.SetStatusAsync(productId, request.IsActive!.Value, cancellationToken))
+            return ProductProblem(StatusCodes.Status404NotFound, "Product not found.", "PRODUCT_NOT_FOUND");
+        return NoContent();
+    }
+
     [HttpGet("{id:guid}")]
     [EndpointSummary("View a product.")]
     [EndpointDescription("Choose a product from the dropdown in Swagger. The response includes its generated ID, SKU, name, unit price and active status.")]

@@ -34,7 +34,7 @@ export class Api {
   }
   command(
     service: Service,
-    method: "POST" | "PUT",
+    method: "POST" | "PUT" | "PATCH",
     path: string,
     body: unknown,
     key?: string,

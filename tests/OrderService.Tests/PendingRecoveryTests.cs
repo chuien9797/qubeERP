@@ -17,6 +17,31 @@ public sealed class PendingRecoveryTests(RecoveryFixture fixture) : IClassFixtur
     private static OrderItemRequest Item(Guid id, int quantity = 1) => new() { ProductId = id, Quantity = quantity };
 
     [Fact]
+    public async Task DeactivationAfterValidationDoesNotFenceAnInFlightInventoryCommit()
+    {
+        var product = await fixture.AddProductAsync(onHand: 10);
+        // Product HTTP lookup has already returned its active snapshot before this handler runs.
+        Dependencies.InventoryResponse = async (request, token) =>
+        {
+            Dependencies.Products[product] = Dependencies.Products[product] with { IsActive = false };
+            return await fixture.ReserveAsync(request, token);
+        };
+        try
+        {
+            using var inFlight = await fixture.PostAsync(NewKey(), Item(product, 2));
+            Assert.Equal(HttpStatusCode.Created, inFlight.StatusCode);
+            var saved = (await inFlight.Content.ReadFromJsonAsync<OrderResponse>())!;
+            Assert.Equal("Confirmed", saved.Status);
+            var calls = Dependencies.InventoryCalls;
+            using var later = await fixture.PostAsync(NewKey(), Item(product, 1));
+            Assert.Equal(HttpStatusCode.UnprocessableEntity, later.StatusCode);
+            Assert.Equal(calls, Dependencies.InventoryCalls);
+            await AssertHoldAsync(saved.OrderId, product, 10, 2, 1);
+        }
+        finally { fixture.ResetHandlers(); }
+    }
+
+    [Fact]
     public async Task T09_LostResponseAfterCommittedHoldRecoversWithoutAnotherReservation()
     {
         var first = await fixture.AddProductAsync(price: 12.50m);

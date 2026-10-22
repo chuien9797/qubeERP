@@ -35,7 +35,7 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerRequestBuilder(builder.Configuration);
 builder.Services.AddSwaggerGen(options =>
 {
-    options.AddQubeApiDocumentation("Products", "Create and retrieve catalogue products. Product creation does not initialise inventory.");
+    options.AddQubeApiDocumentation("Products", "Create, retrieve and activate/deactivate catalogue products. Product status changes never modify inventory or existing orders. In-flight orders may still complete after deactivation.");
     options.SchemaFilter<ProductExamples>();
 });
 builder.Services.AddProblemDetails(options => options.CustomizeProblemDetails = context =>

@@ -37,6 +37,11 @@ public sealed class ApiOperationDocumentation : IOperationFilter
         {
             ["200"] = "A page of products ordered by creation time then ID. Optional search matches SKU/name and isActive filters catalogue status before pagination. An empty page is an empty array. Stock availability is independent of Active status."
         }),
+        ["ProductsController.SetStatus"] = new("SetProductStatus", new()
+        {
+            ["204"] = "Status saved or already at the requested value. Same-value updates do not change UpdatedAtUtc. No response body. Concurrent commands use last committed write wins; read the product for current status. In-flight orders and accepted Pending recovery can still complete.",
+            ["404"] = "No catalogue product exists for this ID."
+        }),
         ["ProductsController.Get"] = new("GetProduct", new()
         {
             ["200"] = "The stored product, including its current active status and catalogue price.",
@@ -226,6 +231,7 @@ public sealed class ApiOperationDocumentation : IOperationFilter
             parameter.Description = parameter.Name switch
             {
                 "Idempotency-Key" => "Required stable key for one purchase: one nonblank header, at most 128 characters. Trimmed and case-sensitive. Keep the key and identical items when retrying or recovering Pending. Changed items return 409; a new purchase needs a new key. Swagger generates a key for its helper; HTTP clients supply their own.",
+                "productId" when key == "ProductsController.SetStatus" => "Existing catalogue product ID. Empty GUID returns 400; unknown product returns 404. Malformed route GUIDs do not match this endpoint (404).",
                 "productId" => "ID returned by ProductService. Select an existing product in the Development Swagger helper.",
                 "reservationId" => "Original reservation ID; for an order reservation this is its orderId. Use the same ID to inspect a rejected result.",
                 "id" => key.StartsWith("Orders", StringComparison.Ordinal)

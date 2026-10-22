@@ -117,3 +117,18 @@ GET {{inventory}}/{{firstProductId}}
 
 ### Ledger: InitialStock, Reserve, StockReceipt, Release; Reserve and Release share the order ID
 GET {{inventory}}/{{firstProductId}}/movements
+
+### Deactivate product (204); existing holds/history remain unchanged and in-flight orders may finish
+PATCH {{products}}/{{firstProductId}}/status
+Content-Type: application/json
+
+{"isActive":false}
+
+### Read the currently observed product state (200)
+GET {{products}}/{{firstProductId}}
+
+### Reactivate product (204); same-value requests leave UpdatedAtUtc unchanged
+PATCH {{products}}/{{firstProductId}}/status
+Content-Type: application/json
+
+{"isActive":true}

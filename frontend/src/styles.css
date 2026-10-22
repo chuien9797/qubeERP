@@ -1264,3 +1264,11 @@ footer {
   height: 18px;
   flex-shrink: 0;
 }
+.product-status-action {
+  display: block;
+  font-size: 12px;
+  min-height: 28px;
+  padding: 5px 0;
+  background: transparent;
+  font-weight: 500;
+}
