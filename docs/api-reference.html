@@ -10,8 +10,8 @@
 <p>Errors use application/problem+json. Numeric status is the HTTP status; orderStatus, when present, is the saved order state. UTC timestamp fields use UTC offsets; Angular displays Malaysia time. The local demo has no authentication.</p>
 <h2 id="common-errors">Common errors</h2>
 <div class="table"><table><thead><tr><th>Status</th><th>Meaning</th></tr></thead><tbody>
-<tr><td>413</td><td>REQUEST_TOO_LARGE: JSON request body exceeds 65,536 bytes.</td></tr>
-<tr><td>415</td><td>UNSUPPORTED_MEDIA_TYPE: use Content-Type: application/json.</td></tr>
+<tr><td>413</td><td>JSON-body endpoints: REQUEST_TOO_LARGE when the request exceeds 65,536 bytes.</td></tr>
+<tr><td>415</td><td>JSON-body endpoints: UNSUPPORTED_MEDIA_TYPE; use Content-Type: application/json.</td></tr>
 <tr><td>500</td><td>Unexpected server/database failure. ProblemDetails exposes an errorCode and traceId, not internal exception details.</td></tr>
 </tbody></table></div>
 <h2 id="products">QubeErp Products API</h2>
@@ -28,7 +28,7 @@
 <p>Create a product.</p>
 <p>Enter a required SKU (at most 50 characters), name (at most 200 characters) and nonnegative unit price with at most two decimal places. New products are active. The product ID is generated automatically. SKUs are trimmed and saved in uppercase. Creating a product does not initialise stock; set its stock count in InventoryService next.</p>
 <h4>Request body</h4>
-<p>Optional JSON body.</p>
+<p>Required JSON body.</p>
 <p>Request — application/json</p>
 <pre><code>{
   &quot;sku&quot;: &quot; mouse-01 &quot;,
@@ -97,7 +97,7 @@
 <tr><td>productId</td><td>path</td><td>string (uuid)</td><td>Yes</td><td>Existing catalogue product ID. Empty GUID returns 400; unknown product returns 404. Malformed route GUIDs do not match this endpoint (404).</td></tr>
 </tbody></table></div>
 <h4>Request body</h4>
-<p>Optional JSON body.</p>
+<p>Required JSON body.</p>
 <p>Request — application/json</p>
 <pre><code>{
   &quot;isActive&quot;: false
@@ -138,7 +138,7 @@
 <p>Look up selected products.</p>
 <p>Supply 1–50 distinct product IDs. The response contains product details and any IDs that were not found. OrderService uses this endpoint to load catalogue prices.</p>
 <h4>Request body</h4>
-<p>Optional JSON body.</p>
+<p>Required JSON body.</p>
 <p>Request — application/json</p>
 <pre><code>{
   &quot;productIds&quot;: [
@@ -167,7 +167,7 @@
 <tr><td>sku</td><td>string</td><td>Yes</td><td>Catalogue SKU is trimmed, uppercased and unique; at most 50 characters after normalisation. Order lines retain the saved SKU.</td></tr>
 <tr><td>name</td><td>string</td><td>Yes</td><td>Catalogue name is trimmed and at most 200 characters. Order lines retain the saved name.</td></tr>
 <tr><td>description</td><td>string; nullable</td><td>No</td><td>—</td></tr>
-<tr><td>unitPrice</td><td>number (double)</td><td>Yes</td><td>Nonnegative decimal with at most two fractional digits, up to 9999999999999999.99. Order lines retain the saved catalogue price.</td></tr>
+<tr><td>unitPrice</td><td>number (decimal)</td><td>Yes</td><td>Nonnegative decimal with at most two fractional digits, up to 9999999999999999.99. Order lines retain the saved catalogue price.</td></tr>
 </tbody></table></div>
 <h4>ProblemDetails</h4>
 <div class="table"><table><thead><tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr></thead><tbody>
@@ -192,7 +192,7 @@
 <tr><td>sku</td><td>string; nullable</td><td>No</td><td>Catalogue SKU is trimmed, uppercased and unique; at most 50 characters after normalisation. Order lines retain the saved SKU.</td></tr>
 <tr><td>name</td><td>string; nullable</td><td>No</td><td>Catalogue name is trimmed and at most 200 characters. Order lines retain the saved name.</td></tr>
 <tr><td>description</td><td>string; nullable</td><td>No</td><td>—</td></tr>
-<tr><td>unitPrice</td><td>number (double)</td><td>No</td><td>Nonnegative decimal with at most two fractional digits, up to 9999999999999999.99. Order lines retain the saved catalogue price.</td></tr>
+<tr><td>unitPrice</td><td>number (decimal)</td><td>No</td><td>Nonnegative decimal with at most two fractional digits, up to 9999999999999999.99. Order lines retain the saved catalogue price.</td></tr>
 <tr><td>isActive</td><td>boolean</td><td>No</td><td>Catalogue activation, independent of stock availability. Status updates require an explicit boolean; zero stock never changes it. Deactivation does not fence orders already validated across services.</td></tr>
 <tr><td>createdAtUtc</td><td>string (date-time)</td><td>No</td><td>—</td></tr>
 <tr><td>updatedAtUtc</td><td>string (date-time)</td><td>No</td><td>—</td></tr>
@@ -229,7 +229,7 @@
 <tr><td>productId</td><td>path</td><td>string (uuid)</td><td>Yes</td><td>ID returned by ProductService.</td></tr>
 </tbody></table></div>
 <h4>Request body</h4>
-<p>Optional JSON body.</p>
+<p>Required JSON body.</p>
 <p>Request — application/json</p>
 <pre><code>{
   &quot;onHand&quot;: 10,
@@ -320,7 +320,7 @@
 <tr><td>productId</td><td>path</td><td>string (uuid)</td><td>Yes</td><td>ID returned by ProductService.</td></tr>
 </tbody></table></div>
 <h4>Request body</h4>
-<p>Optional JSON body.</p>
+<p>Required JSON body.</p>
 <p>Request — application/json</p>
 <pre><code>{
   &quot;operationId&quot;: &quot;cccccccc-cccc-cccc-cccc-cccccccccccc&quot;,
@@ -371,7 +371,7 @@
 <p>Reserve stock for selected products.</p>
 <p>Supply a unique reservation ID and product quantities. Preserve the same ID and items when retrying; use a new ID for a separate reservation. If any product has insufficient stock, nothing is reserved and that request keeps its rejected result. OrderService normally calls this endpoint using the order ID. A direct manual reservation creates a standalone stock hold, not a sales order. Inventory checks its own stock rules and does not call ProductService to enforce catalogue Active status.</p>
 <h4>Request body</h4>
-<p>Optional JSON body.</p>
+<p>Required JSON body.</p>
 <p>Request — application/json</p>
 <pre><code>{
   &quot;reservationId&quot;: &quot;aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa&quot;,
@@ -432,7 +432,7 @@
 <tr><td>reservationId</td><td>path</td><td>string (uuid)</td><td>Yes</td><td>Original reservation ID; for an order reservation this is its orderId. Use the same ID to inspect a rejected result.</td></tr>
 </tbody></table></div>
 <h4>Request body</h4>
-<p>Optional JSON body.</p>
+<p>Required JSON body.</p>
 <p>Request — application/json</p>
 <pre><code>{
   &quot;reason&quot;: &quot;Customer cancelled before shipment&quot;
@@ -661,7 +661,7 @@
 <tr><td>Idempotency-Key</td><td>header</td><td>string</td><td>Yes</td><td>Required stable key for one purchase: one nonblank header, at most 128 characters. Trimmed and case-sensitive. Keep the key and identical items when retrying or recovering Pending. Changed items return 409; a new purchase needs a new key. HTTP clients supply and preserve their own key.</td></tr>
 </tbody></table></div>
 <h4>Request body</h4>
-<p>Optional JSON body.</p>
+<p>Required JSON body.</p>
 <p>Request — application/json</p>
 <pre><code>{
   &quot;items&quot;: [
@@ -849,7 +849,7 @@
 <tr><td>id</td><td>path</td><td>string (uuid)</td><td>Yes</td><td>System-generated orderId returned by order creation. GET does not trigger Pending recovery.</td></tr>
 </tbody></table></div>
 <h4>Request body</h4>
-<p>Optional JSON body.</p>
+<p>Required JSON body.</p>
 <p>Request — application/json</p>
 <pre><code>{
   &quot;reason&quot;: &quot;Customer cancelled before shipment&quot;
@@ -923,8 +923,6 @@
 <tr><td>404</td><td>ORDER_NOT_FOUND.</td></tr>
 <tr><td>409</td><td>Order is not CancellationPending/Cancelled, or Inventory contradicts cancellation. RequiresReview has no automatic transition.</td></tr>
 <tr><td>500</td><td>See Common errors.</td></tr>
-<tr><td>413</td><td>See Common errors.</td></tr>
-<tr><td>415</td><td>See Common errors.</td></tr>
 </tbody></table></div>
 <p>Response 200 — application/json</p>
 <pre><code>{
@@ -1032,15 +1030,15 @@
 <tr><td>productId</td><td>string (uuid)</td><td>No</td><td>—</td></tr>
 <tr><td>sku</td><td>string; nullable</td><td>No</td><td>Catalogue SKU is trimmed, uppercased and unique; at most 50 characters after normalisation. Order lines retain the saved SKU.</td></tr>
 <tr><td>name</td><td>string; nullable</td><td>No</td><td>Catalogue name is trimmed and at most 200 characters. Order lines retain the saved name.</td></tr>
-<tr><td>unitPrice</td><td>number (double)</td><td>No</td><td>Nonnegative decimal with at most two fractional digits, up to 9999999999999999.99. Order lines retain the saved catalogue price.</td></tr>
+<tr><td>unitPrice</td><td>number (decimal)</td><td>No</td><td>Nonnegative decimal with at most two fractional digits, up to 9999999999999999.99. Order lines retain the saved catalogue price.</td></tr>
 <tr><td>quantity</td><td>integer (int32)</td><td>No</td><td>Whole units requested, from 1 to 10,000.</td></tr>
-<tr><td>lineTotal</td><td>number (double)</td><td>No</td><td>—</td></tr>
+<tr><td>lineTotal</td><td>number (decimal)</td><td>No</td><td>Decimal unit price multiplied by quantity, stored with two fractional digits.</td></tr>
 </tbody></table></div>
 <h4>OrderResponse</h4>
 <div class="table"><table><thead><tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr></thead><tbody>
 <tr><td>orderId</td><td>string (uuid)</td><td>No</td><td>—</td></tr>
 <tr><td>status</td><td>string; nullable</td><td>No</td><td>—</td></tr>
-<tr><td>totalAmount</td><td>number (double)</td><td>No</td><td>—</td></tr>
+<tr><td>totalAmount</td><td>number (decimal)</td><td>No</td><td>Sum of saved decimal line totals, within the decimal(18,2) storage range.</td></tr>
 <tr><td>lines</td><td>array of OrderLineResponse</td><td>No</td><td>—</td></tr>
 <tr><td>failureCode</td><td>string; nullable</td><td>No</td><td>—</td></tr>
 <tr><td>shortfalls</td><td>array of StockShortfall</td><td>No</td><td>Original insufficient-stock details. Rejected replay does not recalculate availability after restock.</td></tr>

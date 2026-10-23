@@ -44,7 +44,8 @@
                 "$ref": "#/components/schemas/CreateOrderRequest"
               }
             }
-          }
+          },
+          "required": true
         },
         "responses": {
           "201": {
@@ -391,7 +392,8 @@
                 "$ref": "#/components/schemas/CancelOrderRequest"
               }
             }
-          }
+          },
+          "required": true
         },
         "responses": {
           "200": {
@@ -631,26 +633,6 @@
                 }
               }
             }
-          },
-          "413": {
-            "description": "REQUEST_TOO_LARGE: request body exceeds the 65,536-byte limit.",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "UNSUPPORTED_MEDIA_TYPE: send a JSON body with Content-Type: application/json.",
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
           }
         }
       }
@@ -797,7 +779,7 @@
           "unitPrice": {
             "type": "number",
             "description": "Nonnegative decimal with at most two fractional digits, up to 9999999999999999.99. Order lines retain the saved catalogue price.",
-            "format": "double"
+            "format": "decimal"
           },
           "quantity": {
             "type": "integer",
@@ -806,7 +788,8 @@
           },
           "lineTotal": {
             "type": "number",
-            "format": "double"
+            "description": "Decimal unit price multiplied by quantity, stored with two fractional digits.",
+            "format": "decimal"
           }
         },
         "additionalProperties": false
@@ -824,7 +807,8 @@
           },
           "totalAmount": {
             "type": "number",
-            "format": "double"
+            "description": "Sum of saved decimal line totals, within the decimal(18,2) storage range.",
+            "format": "decimal"
           },
           "lines": {
             "type": "array",

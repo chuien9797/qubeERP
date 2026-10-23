@@ -31,7 +31,8 @@
                 "$ref": "#/components/schemas/CreateProductRequest"
               }
             }
-          }
+          },
+          "required": true
         },
         "responses": {
           "201": {
@@ -226,7 +227,8 @@
                 "$ref": "#/components/schemas/UpdateProductStatusRequest"
               }
             }
-          }
+          },
+          "required": true
         },
         "responses": {
           "204": {
@@ -364,7 +366,8 @@
                 "$ref": "#/components/schemas/ProductLookupRequest"
               }
             }
-          }
+          },
+          "required": true
         },
         "responses": {
           "200": {
@@ -450,7 +453,7 @@
             "minimum": 0,
             "type": "number",
             "description": "Nonnegative decimal with at most two fractional digits, up to 9999999999999999.99. Order lines retain the saved catalogue price.",
-            "format": "double"
+            "format": "decimal"
           }
         },
         "additionalProperties": false,
@@ -564,7 +567,7 @@
           "unitPrice": {
             "type": "number",
             "description": "Nonnegative decimal with at most two fractional digits, up to 9999999999999999.99. Order lines retain the saved catalogue price.",
-            "format": "double"
+            "format": "decimal"
           },
           "isActive": {
             "type": "boolean",

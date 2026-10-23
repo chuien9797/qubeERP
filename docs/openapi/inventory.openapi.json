@@ -43,7 +43,8 @@
                 "$ref": "#/components/schemas/SetStockRequest"
               }
             }
-          }
+          },
+          "required": true
         },
         "responses": {
           "200": {
@@ -334,7 +335,8 @@
                 "$ref": "#/components/schemas/ReceiveStockRequest"
               }
             }
-          }
+          },
+          "required": true
         },
         "responses": {
           "201": {
@@ -460,7 +462,8 @@
                 "$ref": "#/components/schemas/CreateReservationRequest"
               }
             }
-          }
+          },
+          "required": true
         },
         "responses": {
           "201": {
@@ -596,7 +599,8 @@
                 "$ref": "#/components/schemas/ReleaseReservationRequest"
               }
             }
-          }
+          },
+          "required": true
         },
         "responses": {
           "200": {
