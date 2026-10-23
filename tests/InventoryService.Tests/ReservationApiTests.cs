@@ -35,8 +35,8 @@ public sealed class ReservationApiTests(InventoryApiFixture fixture) : IClassFix
             Assert.Equal("Reserved", queried.Status);
         }
 
-        Assert.Equal(new InventoryResponse(first, 10, 3, 7), await BalanceAsync(first));
-        Assert.Equal(new InventoryResponse(second, 8, 2, 6), await BalanceAsync(second));
+        InventoryAssertions.EqualBalance(new InventoryResponse(first, 10, 3, 7), await BalanceAsync(first));
+        InventoryAssertions.EqualBalance(new InventoryResponse(second, 8, 2, 6), await BalanceAsync(second));
         await using var database = fixture.CreateContext();
         var movements = await database.StockMovements.Where(item => item.OperationId == body.ReservationId).ToArrayAsync();
         Assert.Equal(2, movements.Length);
@@ -56,8 +56,8 @@ public sealed class ReservationApiTests(InventoryApiFixture fixture) : IClassFix
         using var response = await PostAsync(Request(id, (enough, 3), (scarce, 2)));
         await AssertProblemAsync(response, 409, "INSUFFICIENT_STOCK");
         Assert.Equal(new[] { new StockShortfall(scarce, 2, 1) }, await ShortfallsAsync(response));
-        Assert.Equal(new InventoryResponse(enough, 10, 0, 10), await BalanceAsync(enough));
-        Assert.Equal(new InventoryResponse(scarce, 1, 0, 1), await BalanceAsync(scarce));
+        InventoryAssertions.EqualBalance(new InventoryResponse(enough, 10, 0, 10), await BalanceAsync(enough));
+        InventoryAssertions.EqualBalance(new InventoryResponse(scarce, 1, 0, 1), await BalanceAsync(scarce));
         Assert.Single(await fixture.GetMovementsAsync(enough));
         Assert.Single(await fixture.GetMovementsAsync(scarce));
         await using var database = fixture.CreateContext();
@@ -91,7 +91,7 @@ public sealed class ReservationApiTests(InventoryApiFixture fixture) : IClassFix
                 await AssertProblemAsync(rejected, 409, "INSUFFICIENT_STOCK");
             }
 
-            Assert.Equal(new InventoryResponse(product, 10, 10, 0), await BalanceAsync(product));
+            InventoryAssertions.EqualBalance(new InventoryResponse(product, 10, 10, 0), await BalanceAsync(product));
             await using var database = fixture.CreateContext();
             var headers = await database.Reservations.Where(item => ids.Contains(item.Id)).ToArrayAsync();
             Assert.Equal(20, headers.Length);
@@ -145,7 +145,7 @@ public sealed class ReservationApiTests(InventoryApiFixture fixture) : IClassFix
         {
             Assert.Single(responses, response => response.StatusCode == HttpStatusCode.Created);
             Assert.Equal(19, responses.Count(response => response.StatusCode == HttpStatusCode.OK));
-            Assert.Equal(new InventoryResponse(product, 10, 1, 9), await BalanceAsync(product));
+            InventoryAssertions.EqualBalance(new InventoryResponse(product, 10, 1, 9), await BalanceAsync(product));
             await using var database = fixture.CreateContext();
             Assert.Equal(1, await database.Reservations.CountAsync(item => item.Id == id));
             Assert.Equal(1, await database.ReservationLines.CountAsync(item => item.ReservationId == id));
@@ -175,7 +175,7 @@ public sealed class ReservationApiTests(InventoryApiFixture fixture) : IClassFix
         await AssertProblemAsync(replay, 409, "INSUFFICIENT_STOCK");
         Assert.Equal(original, await ShortfallsAsync(replay));
         Assert.Equal(new[] { new StockShortfall(product, 3, 2) }, original);
-        Assert.Equal(new InventoryResponse(product, 10, 0, 10), await BalanceAsync(product));
+        InventoryAssertions.EqualBalance(new InventoryResponse(product, 10, 0, 10), await BalanceAsync(product));
         Assert.Equal(beforeReplay, await fixture.GetMovementsAsync(product));
         var outcome = await fixture.Client.GetFromJsonAsync<ReservationResponse>($"/api/inventory/reservations/{id}");
         Assert.Equal("Rejected", outcome!.Status);
@@ -264,8 +264,8 @@ public sealed class ReservationApiTests(InventoryApiFixture fixture) : IClassFix
         {
             using var response = await PostAsync(Request(id, (first, 2), (second, 3)));
             await AssertProblemAsync(response, 500, "INTERNAL_ERROR");
-            Assert.Equal(new InventoryResponse(first, 10, 0, 10), await BalanceAsync(first));
-            Assert.Equal(new InventoryResponse(second, 10, 0, 10), await BalanceAsync(second));
+            InventoryAssertions.EqualBalance(new InventoryResponse(first, 10, 0, 10), await BalanceAsync(first));
+            InventoryAssertions.EqualBalance(new InventoryResponse(second, 10, 0, 10), await BalanceAsync(second));
             Assert.False(await database.Reservations.AnyAsync(item => item.Id == id));
             Assert.False(await database.ReservationLines.AnyAsync(item => item.ReservationId == id));
             Assert.False(await database.StockMovements.AnyAsync(item => item.OperationId == id));
@@ -316,7 +316,7 @@ public sealed class ReservationApiTests(InventoryApiFixture fixture) : IClassFix
         var product = await StockAsync(int.MaxValue);
         using var response = await PostAsync(Request(Guid.NewGuid(), (product, 10000)));
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
-        Assert.Equal(new InventoryResponse(product, int.MaxValue, 10000, int.MaxValue - 10000), await BalanceAsync(product));
+        InventoryAssertions.EqualBalance(new InventoryResponse(product, int.MaxValue, 10000, int.MaxValue - 10000), await BalanceAsync(product));
     }
 
     [Fact]

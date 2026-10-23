@@ -8,7 +8,8 @@ public enum StockUpdateStatus
     ProductNotFound,
     ProductUnavailable,
     StockNotFound,
-    BelowReserved
+    BelowReserved,
+    VersionConflict
 }
 
 public sealed record StockUpdateResult(StockUpdateStatus Status, InventoryResponse? Stock = null);

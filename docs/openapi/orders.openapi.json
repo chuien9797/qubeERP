@@ -1,0 +1,1010 @@
+{
+  "openapi": "3.0.4",
+  "info": {
+    "title": "QubeErp Orders API",
+    "description": "Create multi-item orders with saved prices and stable request keys. Recover uncertain Pending outcomes by replaying the original POST. Example GUIDs illustrate request shapes; use IDs returned by your API.",
+    "version": "v1"
+  },
+  "paths": {
+    "/api/orders": {
+      "post": {
+        "tags": [
+          "Orders"
+        ],
+        "summary": "Create an order for selected products.",
+        "description": "Supply 1–50 distinct active products with quantities of 1–10,000 and an Idempotency-Key header. Preserve the key and items to retry the same order or recover Pending. Use a new key for a separate purchase. OrderService generates the order ID and saves catalogue names, SKUs and prices. Confirmation reserves stock without reducing physical OnHand. A shortage rejects the whole order. A 202 response means the outcome is uncertain; retry the same key and items. Order error responses use numeric status for the HTTP code and orderStatus for the saved order state. Successful/Pending responses and GET order retain their string status field.",
+        "operationId": "CreateOrder",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Required stable key for one purchase: one nonblank header, at most 128 characters. Trimmed and case-sensitive. Keep the key and identical items when retrying or recovering Pending. Changed items return 409; a new purchase needs a new key. HTTP clients supply and preserve their own key.",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 0,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateOrderRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateOrderRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateOrderRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "New order Confirmed with saved product/price snapshots. Stock is reserved, not shipped. Location identifies the order.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderResponse"
+                },
+                "example": {
+                  "orderId": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+                  "status": "Confirmed",
+                  "totalAmount": 199.50,
+                  "lines": [
+                    {
+                      "productId": "11111111-1111-1111-1111-111111111111",
+                      "sku": "MOUSE-01",
+                      "name": "Wireless Mouse",
+                      "unitPrice": 59.90,
+                      "quantity": 3,
+                      "lineTotal": 179.70
+                    },
+                    {
+                      "productId": "22222222-2222-2222-2222-222222222222",
+                      "sku": "PAD-01",
+                      "name": "Mouse Pad",
+                      "unitPrice": 9.90,
+                      "quantity": 2,
+                      "lineTotal": 19.80
+                    }
+                  ],
+                  "failureCode": null,
+                  "shortfalls": [ ],
+                  "createdAtUtc": "2026-10-22T00:00:00+00:00",
+                  "updatedAtUtc": "2026-10-22T00:00:01+00:00",
+                  "lastAttemptAtUtc": "2026-10-22T00:00:00+00:00",
+                  "cancellationReason": null
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Existing order is Confirmed, Cancelled or Fulfilled, including a successful Pending recovery. Returns saved snapshots without another logical stock hold. Fulfilled is recognised for compatibility but has no public command.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderResponse"
+                },
+                "example": {
+                  "orderId": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+                  "status": "Confirmed",
+                  "totalAmount": 199.50,
+                  "lines": [
+                    {
+                      "productId": "11111111-1111-1111-1111-111111111111",
+                      "sku": "MOUSE-01",
+                      "name": "Wireless Mouse",
+                      "unitPrice": 59.90,
+                      "quantity": 3,
+                      "lineTotal": 179.70
+                    },
+                    {
+                      "productId": "22222222-2222-2222-2222-222222222222",
+                      "sku": "PAD-01",
+                      "name": "Mouse Pad",
+                      "unitPrice": 9.90,
+                      "quantity": 2,
+                      "lineTotal": 19.80
+                    }
+                  ],
+                  "failureCode": null,
+                  "shortfalls": [ ],
+                  "createdAtUtc": "2026-10-22T00:00:00+00:00",
+                  "updatedAtUtc": "2026-10-22T00:00:01+00:00",
+                  "lastAttemptAtUtc": "2026-10-22T00:00:00+00:00",
+                  "cancellationReason": null
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Pending: Inventory's outcome is uncertain, including an Inventory HTTP 408. Response contains orderId, status and statusUrl; Location identifies the order. Repeat the same POST key/items to recover; GET alone does not recover. Recovery verifies original product IDs and quantities from the saved reservation; mismatched or missing lines require review. Replaying a key while its order is CancellationPending returns that state; use cancel or reconcile-cancellation to recover cancellation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PendingOrderResponse"
+                },
+                "example": {
+                  "orderId": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+                  "status": "Pending",
+                  "statusUrl": "/api/orders/bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid Idempotency-Key or items; supply 1–50 distinct products with quantities of 1–10,000.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "INSUFFICIENT_STOCK with orderId, orderStatus, statusUrl and original shortfalls, or IDEMPOTENCY_KEY_CONFLICT for a changed payload. Numeric status is the HTTP code. No additional stock hold.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "title": "Insufficient stock.",
+                  "status": 409,
+                  "errorCode": "INSUFFICIENT_STOCK",
+                  "orderId": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+                  "statusUrl": "/api/orders/bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+                  "orderStatus": "Rejected",
+                  "shortfalls": [
+                    {
+                      "productId": "11111111-1111-1111-1111-111111111111",
+                      "requested": 3,
+                      "available": 1
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "REQUEST_TOO_LARGE: request body exceeds the 65,536-byte limit.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "INVALID_PRODUCT with invalidProductIds for missing/inactive products, or ORDER_TOTAL_OUT_OF_RANGE. No new order or reservation created.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "title": "Some products are missing or inactive.",
+                  "status": 422,
+                  "errorCode": "INVALID_PRODUCT",
+                  "invalidProductIds": [
+                    "11111111-1111-1111-1111-111111111111"
+                  ]
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Inventory contract failure: stored Rejected/INVENTORY_INVALID_REQUEST or RequiresReview/RESERVATION_PAYLOAD_CONFLICT/INVENTORY_UNEXPECTED_RESPONSE. Inspect orderId/statusUrl; do not treat as confirmed.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "title": "The Inventory response needs investigation.",
+                  "status": 502,
+                  "errorCode": "INVENTORY_UNEXPECTED_RESPONSE",
+                  "orderId": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+                  "orderStatus": "RequiresReview",
+                  "statusUrl": "/api/orders/bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "PRODUCT_UNAVAILABLE: catalogue lookup failed or returned unusable data before a new order was saved.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "title": "Product lookup is unavailable.",
+                  "status": 503,
+                  "errorCode": "PRODUCT_UNAVAILABLE"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected server/database failure. ProblemDetails contains an errorCode and traceId; internal exception details are not exposed.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "UNSUPPORTED_MEDIA_TYPE: send a JSON body with Content-Type: application/json.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Orders"
+        ],
+        "summary": "List saved orders, optionally filtered by status.",
+        "description": "Use status=RequiresReview for manual investigation. Optional newestFirst=true returns recent orders first; the default remains oldest first. Filtering and sorting precede pagination. This read never reconciles orders or changes stock.",
+        "operationId": "ListOrders",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "description": "Optional saved order state. Leave unselected for all orders; select RequiresReview for manual investigation. Listing never reconciles orders or changes stock.",
+            "schema": {
+              "enum": [
+                "Pending",
+                "Confirmed",
+                "Rejected",
+                "RequiresReview",
+                "CancellationPending",
+                "Cancelled",
+                "Fulfilled"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Number of records to skip, starting at 0. Default 0.",
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer",
+              "format": "int32",
+              "default": 0
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Page size from 1 to 200. Default 100.",
+            "schema": {
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer",
+              "format": "int32",
+              "default": 100
+            }
+          },
+          {
+            "name": "newestFirst",
+            "in": "query",
+            "description": "Set true for descending creation time and ID. Defaults to false for compatibility.",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Saved orders ordered by creation time and ID, or descending when newestFirst=true. Filter status=RequiresReview for manual investigation. Read-only.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/OrderResponse"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid status filter or pagination bounds.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblemDetails"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected server/database failure. ProblemDetails contains an errorCode and traceId; internal exception details are not exposed.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/orders/{id}/cancel": {
+      "post": {
+        "tags": [
+          "Orders"
+        ],
+        "summary": "Cancel a confirmed order and release its reserved stock.",
+        "description": "Requires a reason of 1–500 characters. The first accepted reason is immutable. Replays use the same reservation identity and saved reason. 202 means release is uncertain; retry cancel or reconcile cancellation. Pending orders must reconcile their initial reservation first. Inventory contradictions require manual review.",
+        "operationId": "CancelOrder",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "System-generated orderId returned by order creation. GET does not trigger Pending recovery.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelOrderRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelOrderRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelOrderRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Cancelled, including idempotent replay. All held quantities released once; original cancellationReason retained.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderResponse"
+                },
+                "example": {
+                  "orderId": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+                  "status": "Cancelled",
+                  "totalAmount": 199.50,
+                  "lines": [
+                    {
+                      "productId": "11111111-1111-1111-1111-111111111111",
+                      "sku": "MOUSE-01",
+                      "name": "Wireless Mouse",
+                      "unitPrice": 59.90,
+                      "quantity": 3,
+                      "lineTotal": 179.70
+                    },
+                    {
+                      "productId": "22222222-2222-2222-2222-222222222222",
+                      "sku": "PAD-01",
+                      "name": "Mouse Pad",
+                      "unitPrice": 9.90,
+                      "quantity": 2,
+                      "lineTotal": 19.80
+                    }
+                  ],
+                  "failureCode": null,
+                  "shortfalls": [ ],
+                  "createdAtUtc": "2026-10-22T00:00:00+00:00",
+                  "updatedAtUtc": "2026-10-22T00:00:01+00:00",
+                  "lastAttemptAtUtc": "2026-10-22T00:00:00+00:00",
+                  "cancellationReason": "Customer cancelled before shipment"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "CancellationPending: durable intent saved, release outcome uncertain. Retry cancel or reconcile-cancellation with the original order ID.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PendingOrderResponse"
+                },
+                "example": {
+                  "orderId": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+                  "status": "CancellationPending",
+                  "statusUrl": "/api/orders/bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid order ID or missing/invalid cancellation reason.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ORDER_NOT_FOUND: no order has this ID.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Invalid order state or RequiresReview. Pending orders must reconcile reservation first. Unexpected Inventory 4xx requires manual review; orderStatus is separate from numeric HTTP status.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "title": "Cancellation requires manual review.",
+                  "status": 409,
+                  "errorCode": "CANCELLATION_REQUIRES_REVIEW",
+                  "orderId": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+                  "orderStatus": "RequiresReview",
+                  "statusUrl": "/api/orders/bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected server/database failure. ProblemDetails contains an errorCode and traceId; internal exception details are not exposed.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "REQUEST_TOO_LARGE: request body exceeds the 65,536-byte limit.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "UNSUPPORTED_MEDIA_TYPE: send a JSON body with Content-Type: application/json.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/orders/{id}/reconcile-cancellation": {
+      "post": {
+        "tags": [
+          "Orders"
+        ],
+        "summary": "Recover an uncertain cancellation using the original reservation.",
+        "description": "Queries Inventory first. Verified Released completes cancellation; Reserved re-drives release with the saved reason and original ID. Timeouts remain CancellationPending. RequiresReview never transitions automatically. Initial Pending reservation recovery remains the original order POST.",
+        "operationId": "ReconcileCancellation",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "System-generated orderId returned by order creation. GET does not trigger Pending recovery.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Released verified; order Cancelled with one OrderCancelled outbox event. Already Cancelled replays without Inventory calls.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderResponse"
+                },
+                "example": {
+                  "orderId": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+                  "status": "Cancelled",
+                  "totalAmount": 199.50,
+                  "lines": [
+                    {
+                      "productId": "11111111-1111-1111-1111-111111111111",
+                      "sku": "MOUSE-01",
+                      "name": "Wireless Mouse",
+                      "unitPrice": 59.90,
+                      "quantity": 3,
+                      "lineTotal": 179.70
+                    },
+                    {
+                      "productId": "22222222-2222-2222-2222-222222222222",
+                      "sku": "PAD-01",
+                      "name": "Mouse Pad",
+                      "unitPrice": 9.90,
+                      "quantity": 2,
+                      "lineTotal": 19.80
+                    }
+                  ],
+                  "failureCode": null,
+                  "shortfalls": [ ],
+                  "createdAtUtc": "2026-10-22T00:00:00+00:00",
+                  "updatedAtUtc": "2026-10-22T00:00:01+00:00",
+                  "lastAttemptAtUtc": "2026-10-22T00:00:00+00:00",
+                  "cancellationReason": "Customer cancelled before shipment"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Inventory query or release remains uncertain. CancellationPending is preserved.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PendingOrderResponse"
+                },
+                "example": {
+                  "orderId": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+                  "status": "CancellationPending",
+                  "statusUrl": "/api/orders/bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ORDER_NOT_FOUND.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Order is not CancellationPending/Cancelled, or Inventory contradicts cancellation. RequiresReview has no automatic transition.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "title": "Cancellation requires manual review.",
+                  "status": 409,
+                  "errorCode": "CANCELLATION_REQUIRES_REVIEW",
+                  "orderId": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+                  "orderStatus": "RequiresReview",
+                  "statusUrl": "/api/orders/bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected server/database failure. ProblemDetails contains an errorCode and traceId; internal exception details are not exposed.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "REQUEST_TOO_LARGE: request body exceeds the 65,536-byte limit.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "UNSUPPORTED_MEDIA_TYPE: send a JSON body with Content-Type: application/json.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/orders/{id}": {
+      "get": {
+        "tags": [
+          "Orders"
+        ],
+        "summary": "View an order and its saved prices.",
+        "description": "Retrieve a stored order by ID. Reading an order does not retry reservations or change its status. To recover a Pending order, repeat its original POST with the same request key and items.",
+        "operationId": "GetOrder",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "System-generated orderId returned by order creation. GET does not trigger Pending recovery.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Stored order, item snapshots and cancellationReason. This read has no recovery side effects.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ORDER_NOT_FOUND: no order has this ID.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected server/database failure. ProblemDetails contains an errorCode and traceId; internal exception details are not exposed.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "CancelOrderRequest": {
+        "required": [
+          "reason"
+        ],
+        "type": "object",
+        "properties": {
+          "reason": {
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string",
+            "description": "Required, nonblank reason of at most 500 characters. First accepted cancellation reason is immutable; replay text is ignored."
+          }
+        },
+        "additionalProperties": false,
+        "example": {
+          "reason": "Customer cancelled before shipment"
+        }
+      },
+      "CreateOrderRequest": {
+        "required": [
+          "items"
+        ],
+        "type": "object",
+        "properties": {
+          "items": {
+            "maxItems": 50,
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderItemRequest"
+            },
+            "description": "1–50 non-null lines with distinct, nonempty product IDs. Each line quantity must be 1–10,000. Item order does not affect the request fingerprint."
+          }
+        },
+        "additionalProperties": false,
+        "example": {
+          "items": [
+            {
+              "productId": "11111111-1111-1111-1111-111111111111",
+              "quantity": 3
+            },
+            {
+              "productId": "22222222-2222-2222-2222-222222222222",
+              "quantity": 2
+            }
+          ]
+        }
+      },
+      "OrderItemRequest": {
+        "type": "object",
+        "properties": {
+          "productId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "quantity": {
+            "maximum": 10000,
+            "minimum": 1,
+            "type": "integer",
+            "description": "Whole units requested, from 1 to 10,000.",
+            "format": "int32"
+          }
+        },
+        "additionalProperties": false
+      },
+      "OrderLineResponse": {
+        "type": "object",
+        "properties": {
+          "productId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sku": {
+            "type": "string",
+            "description": "Catalogue SKU is trimmed, uppercased and unique; at most 50 characters after normalisation. Order lines retain the saved SKU.",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "description": "Catalogue name is trimmed and at most 200 characters. Order lines retain the saved name.",
+            "nullable": true
+          },
+          "unitPrice": {
+            "type": "number",
+            "description": "Nonnegative decimal with at most two fractional digits, up to 9999999999999999.99. Order lines retain the saved catalogue price.",
+            "format": "double"
+          },
+          "quantity": {
+            "type": "integer",
+            "description": "Whole units requested, from 1 to 10,000.",
+            "format": "int32"
+          },
+          "lineTotal": {
+            "type": "number",
+            "format": "double"
+          }
+        },
+        "additionalProperties": false
+      },
+      "OrderResponse": {
+        "type": "object",
+        "properties": {
+          "orderId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "nullable": true
+          },
+          "totalAmount": {
+            "type": "number",
+            "format": "double"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderLineResponse"
+            },
+            "nullable": true
+          },
+          "failureCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "shortfalls": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StockShortfall"
+            },
+            "description": "Original insufficient-stock details. Rejected replay does not recalculate availability after restock.",
+            "nullable": true
+          },
+          "createdAtUtc": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAtUtc": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "lastAttemptAtUtc": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "cancellationReason": {
+            "type": "string",
+            "description": "First accepted cancellation reason; preserved on all retries, including different replay text. Null before cancellation.",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false,
+        "example": {
+          "orderId": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+          "status": "Confirmed",
+          "totalAmount": 199.50,
+          "lines": [
+            {
+              "productId": "11111111-1111-1111-1111-111111111111",
+              "sku": "MOUSE-01",
+              "name": "Wireless Mouse",
+              "unitPrice": 59.90,
+              "quantity": 3,
+              "lineTotal": 179.70
+            },
+            {
+              "productId": "22222222-2222-2222-2222-222222222222",
+              "sku": "PAD-01",
+              "name": "Mouse Pad",
+              "unitPrice": 9.90,
+              "quantity": 2,
+              "lineTotal": 19.80
+            }
+          ],
+          "failureCode": null,
+          "shortfalls": [ ],
+          "createdAtUtc": "2026-10-22T00:00:00+00:00",
+          "updatedAtUtc": "2026-10-22T00:00:01+00:00",
+          "lastAttemptAtUtc": "2026-10-22T00:00:00+00:00",
+          "cancellationReason": null
+        }
+      },
+      "PendingOrderResponse": {
+        "type": "object",
+        "properties": {
+          "orderId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "nullable": true
+          },
+          "statusUrl": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false,
+        "example": {
+          "orderId": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+          "status": "Pending",
+          "statusUrl": "/api/orders/bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+        }
+      },
+      "ProblemDetails": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "nullable": true
+          },
+          "title": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "detail": {
+            "type": "string",
+            "nullable": true
+          },
+          "instance": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": { }
+      },
+      "StockShortfall": {
+        "type": "object",
+        "properties": {
+          "productId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "requested": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "available": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ValidationProblemDetails": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "nullable": true
+          },
+          "title": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "detail": {
+            "type": "string",
+            "nullable": true
+          },
+          "instance": {
+            "type": "string",
+            "nullable": true
+          },
+          "errors": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": { }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "Orders"
+    }
+  ]
+}

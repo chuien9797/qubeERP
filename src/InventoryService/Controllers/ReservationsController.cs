@@ -12,7 +12,7 @@ public sealed class ReservationsController(ReservationService reservations) : Co
 {
     [HttpPost]
     [EndpointSummary("Reserve stock for selected products.")]
-    [EndpointDescription("In Swagger, select products and quantities; the reservation ID is generated for you. Execute again with the same ID and original items to retry safely. Use New reservation for a separate request. If any product has insufficient stock, nothing is reserved and that request keeps its rejected result. OrderService normally calls this endpoint using the order ID. A direct manual reservation creates a standalone stock hold, not a sales order. Inventory checks its own stock rules and does not call ProductService to enforce catalogue Active status.")]
+    [EndpointDescription("Supply a unique reservation ID and product quantities. Preserve the same ID and items when retrying; use a new ID for a separate reservation. If any product has insufficient stock, nothing is reserved and that request keeps its rejected result. OrderService normally calls this endpoint using the order ID. A direct manual reservation creates a standalone stock hold, not a sales order. Inventory checks its own stock rules and does not call ProductService to enforce catalogue Active status.")]
     [ProducesResponseType<ReservationResponse>(StatusCodes.Status201Created)]
     [ProducesResponseType<ReservationResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]

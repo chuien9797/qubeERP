@@ -1,0 +1,654 @@
+{
+  "openapi": "3.0.4",
+  "info": {
+    "title": "QubeErp Products API",
+    "description": "Create, retrieve and activate/deactivate catalogue products. Product status changes never modify inventory or existing orders. In-flight orders may still complete after deactivation. Example GUIDs illustrate request shapes; use IDs returned by your API.",
+    "version": "v1"
+  },
+  "paths": {
+    "/api/products": {
+      "post": {
+        "tags": [
+          "Products"
+        ],
+        "summary": "Create a product.",
+        "description": "Enter a required SKU (at most 50 characters), name (at most 200 characters) and nonnegative unit price with at most two decimal places. New products are active. The product ID is generated automatically. SKUs are trimmed and saved in uppercase. Creating a product does not initialise stock; set its stock count in InventoryService next.",
+        "operationId": "CreateProduct",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateProductRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateProductRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateProductRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Product created with a generated ID and active status. Location identifies the product. Stock is not initialised.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid SKU, name, description or unit price.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "DUPLICATE_SKU: the trimmed, uppercase SKU already exists, including a concurrent insert.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "title": "A product with this SKU already exists.",
+                  "status": 409,
+                  "errorCode": "DUPLICATE_SKU"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected server/database failure. ProblemDetails contains an errorCode and traceId; internal exception details are not exposed.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "REQUEST_TOO_LARGE: request body exceeds the 65,536-byte limit.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "UNSUPPORTED_MEDIA_TYPE: send a JSON body with Content-Type: application/json.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Products"
+        ],
+        "summary": "List products, including inactive products, in creation order.",
+        "description": "Use offset and limit (up to 200) for pagination. Optional search matches SKU or name; optional isActive filters catalogue Active status, independently of stock availability. Filtering occurs before pagination. Defaults still return all products in creation order.",
+        "operationId": "ListProducts",
+        "parameters": [
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Number of records to skip, starting at 0. Default 0.",
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer",
+              "format": "int32",
+              "default": 0
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Page size from 1 to 200. Default 100.",
+            "schema": {
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer",
+              "format": "int32",
+              "default": 100
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "description": "Optional SKU/name substring, trimmed, at most 100 characters. Applied before pagination.",
+            "schema": {
+              "maxLength": 100,
+              "minLength": 0,
+              "type": "string"
+            }
+          },
+          {
+            "name": "isActive",
+            "in": "query",
+            "description": "Optional catalogue Active filter; this does not filter inventory availability.",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of products ordered by creation time then ID. Optional search matches SKU/name and isActive filters catalogue status before pagination. An empty page is an empty array. Stock availability is independent of Active status.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ProductResponse"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid pagination or catalogue filter.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblemDetails"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected server/database failure. ProblemDetails contains an errorCode and traceId; internal exception details are not exposed.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/products/{productId}/status": {
+      "patch": {
+        "tags": [
+          "Products"
+        ],
+        "summary": "Activate or deactivate a catalogue product.",
+        "description": "Send an explicit JSON boolean isActive. Returns 204 for a changed status or a same-value no-op; read the product for its currently observed status. Only IsActive and, on a real change, UpdatedAtUtc are written. Concurrent commands use last committed write wins, without ETags or cross-service locking. Deactivation blocks new orders whose Product lookup observes inactive; an already validated or durably Pending order may still finish/recover. Existing inventory, reservations, orders and movements are untouched. Zero stock never changes Active status. Direct Inventory reservation commands are not gated by catalogue status.",
+        "operationId": "SetProductStatus",
+        "parameters": [
+          {
+            "name": "productId",
+            "in": "path",
+            "description": "Existing catalogue product ID. Empty GUID returns 400; unknown product returns 404. Malformed route GUIDs do not match this endpoint (404).",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProductStatusRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProductStatusRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProductStatusRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Status saved or already at the requested value. Same-value updates do not change UpdatedAtUtc. No response body. Concurrent commands use last committed write wins; read the product for current status. In-flight orders and accepted Pending recovery can still complete."
+          },
+          "400": {
+            "description": "Invalid product ID or missing/non-boolean isActive.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No catalogue product exists for this ID.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected server/database failure. ProblemDetails contains an errorCode and traceId; internal exception details are not exposed.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "REQUEST_TOO_LARGE: request body exceeds the 65,536-byte limit.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "UNSUPPORTED_MEDIA_TYPE: send a JSON body with Content-Type: application/json.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/products/{id}": {
+      "get": {
+        "tags": [
+          "Products"
+        ],
+        "summary": "View a product.",
+        "description": "Retrieve a product by its ID. The response includes its generated ID, SKU, name, unit price and active status.",
+        "operationId": "GetProduct",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "System-generated product ID returned by product creation.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The stored product, including its current active status and catalogue price.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "PRODUCT_NOT_FOUND: no product has this ID.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected server/database failure. ProblemDetails contains an errorCode and traceId; internal exception details are not exposed.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/products/lookup": {
+      "post": {
+        "tags": [
+          "Products"
+        ],
+        "summary": "Look up selected products.",
+        "description": "Supply 1–50 distinct product IDs. The response contains product details and any IDs that were not found. OrderService uses this endpoint to load catalogue prices.",
+        "operationId": "LookupProducts",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProductLookupRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProductLookupRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProductLookupRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Found products and missingProductIds. Missing or inactive products do not make this lookup an HTTP error. This POST is read-only.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductLookupResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Supply 1–50 distinct, nonempty product IDs.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblemDetails"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected server/database failure. ProblemDetails contains an errorCode and traceId; internal exception details are not exposed.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "REQUEST_TOO_LARGE: request body exceeds the 65,536-byte limit.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "UNSUPPORTED_MEDIA_TYPE: send a JSON body with Content-Type: application/json.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "CreateProductRequest": {
+        "required": [
+          "name",
+          "sku",
+          "unitPrice"
+        ],
+        "type": "object",
+        "properties": {
+          "sku": {
+            "minLength": 1,
+            "type": "string",
+            "description": "Catalogue SKU is trimmed, uppercased and unique; at most 50 characters after normalisation. Order lines retain the saved SKU."
+          },
+          "name": {
+            "minLength": 1,
+            "type": "string",
+            "description": "Catalogue name is trimmed and at most 200 characters. Order lines retain the saved name."
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "unitPrice": {
+            "maximum": 9999999999999999.99,
+            "minimum": 0,
+            "type": "number",
+            "description": "Nonnegative decimal with at most two fractional digits, up to 9999999999999999.99. Order lines retain the saved catalogue price.",
+            "format": "double"
+          }
+        },
+        "additionalProperties": false,
+        "example": {
+          "sku": " mouse-01 ",
+          "name": "Wireless Mouse",
+          "description": "2.4 GHz",
+          "unitPrice": 59.90
+        }
+      },
+      "ProblemDetails": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "nullable": true
+          },
+          "title": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "detail": {
+            "type": "string",
+            "nullable": true
+          },
+          "instance": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": { }
+      },
+      "ProductLookupRequest": {
+        "required": [
+          "productIds"
+        ],
+        "type": "object",
+        "properties": {
+          "productIds": {
+            "maxItems": 50,
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "example": {
+          "productIds": [
+            "11111111-1111-1111-1111-111111111111",
+            "22222222-2222-2222-2222-222222222222"
+          ]
+        }
+      },
+      "ProductLookupResponse": {
+        "type": "object",
+        "properties": {
+          "products": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProductResponse"
+            },
+            "nullable": true
+          },
+          "missingProductIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Requested IDs that do not exist. Inactive products are returned in products with isActive=false.",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false,
+        "example": {
+          "products": [ ],
+          "missingProductIds": [
+            "11111111-1111-1111-1111-111111111111"
+          ]
+        }
+      },
+      "ProductResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sku": {
+            "type": "string",
+            "description": "Catalogue SKU is trimmed, uppercased and unique; at most 50 characters after normalisation. Order lines retain the saved SKU.",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "description": "Catalogue name is trimmed and at most 200 characters. Order lines retain the saved name.",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "unitPrice": {
+            "type": "number",
+            "description": "Nonnegative decimal with at most two fractional digits, up to 9999999999999999.99. Order lines retain the saved catalogue price.",
+            "format": "double"
+          },
+          "isActive": {
+            "type": "boolean",
+            "description": "Catalogue activation, independent of stock availability. Status updates require an explicit boolean; zero stock never changes it. Deactivation does not fence orders already validated across services."
+          },
+          "createdAtUtc": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAtUtc": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false,
+        "example": {
+          "id": "11111111-1111-1111-1111-111111111111",
+          "sku": "MOUSE-01",
+          "name": "Wireless Mouse",
+          "description": "2.4 GHz",
+          "unitPrice": 59.90,
+          "isActive": true,
+          "createdAtUtc": "2026-10-22T00:00:00+00:00",
+          "updatedAtUtc": "2026-10-22T00:00:00+00:00"
+        }
+      },
+      "UpdateProductStatusRequest": {
+        "required": [
+          "isActive"
+        ],
+        "type": "object",
+        "properties": {
+          "isActive": {
+            "type": "boolean",
+            "description": "Catalogue activation, independent of stock availability. Status updates require an explicit boolean; zero stock never changes it. Deactivation does not fence orders already validated across services."
+          }
+        },
+        "additionalProperties": false,
+        "example": {
+          "isActive": false
+        }
+      },
+      "ValidationProblemDetails": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "nullable": true
+          },
+          "title": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "detail": {
+            "type": "string",
+            "nullable": true
+          },
+          "instance": {
+            "type": "string",
+            "nullable": true
+          },
+          "errors": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": { }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "Products"
+    }
+  ]
+}

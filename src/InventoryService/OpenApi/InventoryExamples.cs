@@ -11,7 +11,7 @@ public sealed class InventoryExamples : ISchemaFilter
     {
         if (context.Type == typeof(SetStockRequest) && schema is OpenApiSchema stockSchema)
         {
-            stockSchema.Example = JsonNode.Parse("""{"onHand":10,"reason":"Initial stocktake"}""");
+            stockSchema.Example = JsonNode.Parse("""{"onHand":10,"reason":"Physical count","expectedVersion":"AAAAAAAAAAE="}""");
         }
 
         if (context.Type == typeof(CreateReservationRequest) && schema is OpenApiSchema reservationSchema)

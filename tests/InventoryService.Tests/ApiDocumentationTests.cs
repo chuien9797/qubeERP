@@ -13,6 +13,23 @@ public sealed class ApiDocumentationTests
         await using var factory = new InventoryApiFactory(
             "Server=localhost;Database=Unused;Integrated Security=True;TrustServerCertificate=True", products);
         var document = factory.Services.GetRequiredService<ISwaggerProvider>().GetSwagger("v1");
+        var bodyOperations = document.Paths.Values.SelectMany(path => path.Operations!.Values)
+            .Where(operation => operation.RequestBody is not null).ToArray();
+        Assert.Equal(4, bodyOperations.Length);
+        Assert.All(bodyOperations, operation => Assert.True(operation.RequestBody!.Required));
+        var stock = document.Components!.Schemas!["InventoryResponse"];
+        Assert.Contains("version", stock.Properties!.Keys);
+        Assert.Equal(8, Convert.FromBase64String(stock.Example!["version"]!.GetValue<string>()).Length);
+        var count = document.Components.Schemas["SetStockRequest"];
+        Assert.Contains("expectedVersion", count.Properties!.Keys);
+        var put = Assert.Single(document.Paths["/api/inventory/{productId}"].Operations!.Values, value => value.OperationId == "SetPhysicalStock");
+        Assert.Contains("STOCK_VERSION_CONFLICT", put.Responses!["409"].Description!);
+        var release = Assert.Single(document.Paths["/api/inventory/reservations/{reservationId}/release"].Operations!.Values);
+        var releaseExample = release.Responses!["200"].Content!["application/json"].Example!;
+        Assert.Equal("Released", releaseExample["status"]!.GetValue<string>());
+        var requestId = document.Components.Schemas["CreateReservationRequest"].Example!["reservationId"]!.GetValue<string>();
+        Assert.Equal(requestId, releaseExample["reservationId"]!.GetValue<string>());
+        Assert.Equal(requestId, document.Components.Schemas["ReservationResponse"].Example!["reservationId"]!.GetValue<string>());
         var operation = Assert.Single(document.Paths["/api/inventory/reservations/{reservationId}"].Operations!.Values);
         Assert.Equal("GetReservation", operation.OperationId);
         var schema = document.Components!.Schemas!["ReservationDetailsResponse"];

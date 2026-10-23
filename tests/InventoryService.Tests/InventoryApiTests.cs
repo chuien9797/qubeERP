@@ -20,7 +20,7 @@ public sealed class InventoryApiTests(InventoryApiFixture fixture) : IClassFixtu
     {
         var id = fixture.AddProduct();
         var balance = await fixture.SetStockAsync(id, 10, " Initial stocktake ");
-        Assert.Equal(new InventoryResponse(id, 10, 0, 10), balance);
+        InventoryAssertions.EqualBalance(new InventoryResponse(id, 10, 0, 10), balance);
         Assert.Equal(balance, await fixture.Client.GetFromJsonAsync<InventoryResponse>($"/api/inventory/{id}"));
         var movement = Assert.Single(await fixture.GetMovementsAsync(id));
         Assert.Equal("InitialStock", movement.MovementType);
@@ -38,7 +38,7 @@ public sealed class InventoryApiTests(InventoryApiFixture fixture) : IClassFixtu
     public async Task ZeroInitializationCreatesNoMovement()
     {
         var id = fixture.AddProduct();
-        Assert.Equal(new InventoryResponse(id, 0, 0, 0), await fixture.SetStockAsync(id, 0));
+        InventoryAssertions.EqualBalance(new InventoryResponse(id, 0, 0, 0), await fixture.SetStockAsync(id, 0));
         Assert.Empty(await fixture.GetMovementsAsync(id));
         await fixture.SetStockAsync(id, 5);
         var movement = Assert.Single(await fixture.GetMovementsAsync(id));
@@ -102,7 +102,7 @@ public sealed class InventoryApiTests(InventoryApiFixture fixture) : IClassFixtu
         var id = fixture.AddProduct();
         await fixture.SetStockAsync(id, 10);
         fixture.Products.Respond(id, HttpStatusCode.ServiceUnavailable);
-        Assert.Equal(new InventoryResponse(id, 8, 0, 8), await fixture.SetStockAsync(id, 8));
+        InventoryAssertions.EqualBalance(new InventoryResponse(id, 8, 0, 8), await fixture.SetStockAsync(id, 8));
         Assert.Equal(1, fixture.Products.CallCount(id));
     }
 
@@ -130,10 +130,10 @@ public sealed class InventoryApiTests(InventoryApiFixture fixture) : IClassFixtu
 
         using var rejected = await fixture.PutAsync(id, 2);
         await AssertProblem(rejected, 409, "STOCK_BELOW_RESERVED");
-        Assert.Equal(new InventoryResponse(id, 10, 3, 7),
+        InventoryAssertions.EqualBalance(new InventoryResponse(id, 10, 3, 7),
             await fixture.Client.GetFromJsonAsync<InventoryResponse>($"/api/inventory/{id}"));
         Assert.Single(await fixture.GetMovementsAsync(id));
-        Assert.Equal(new InventoryResponse(id, 8, 3, 5), await fixture.SetStockAsync(id, 8));
+        InventoryAssertions.EqualBalance(new InventoryResponse(id, 8, 3, 5), await fixture.SetStockAsync(id, 8));
         var movement = (await fixture.GetMovementsAsync(id))[^1];
         Assert.Equal(3, movement.ReservedAfter);
         Assert.Equal(0, movement.ReservedDelta);
@@ -147,7 +147,8 @@ public sealed class InventoryApiTests(InventoryApiFixture fixture) : IClassFixtu
         var responses = await Task.WhenAll(fixture.PutAsync(id, 10), fixture.PutAsync(id, 10));
         try
         {
-            Assert.All(responses, response => Assert.Equal(HttpStatusCode.OK, response.StatusCode));
+            Assert.Single(responses, response => response.StatusCode == HttpStatusCode.OK);
+            Assert.Single(responses, response => response.StatusCode == HttpStatusCode.Conflict);
             Assert.Equal(2, fixture.Products.CallCount(id));
             await using var database = fixture.CreateContext();
             var stock = Assert.Single(await database.StockItems.Where(item => item.ProductId == id).ToListAsync());
@@ -287,9 +288,13 @@ public sealed class InventoryApiFixture : IAsyncLifetime
         return id;
     }
 
-    public Task<HttpResponseMessage> PutAsync(Guid id, int quantity, string reason = "Stocktake")
+    public async Task<HttpResponseMessage> PutAsync(Guid id, int quantity, string reason = "Stocktake")
     {
-        return Client.PutAsJsonAsync($"/api/inventory/{id}", new SetStockRequest { OnHand = quantity, Reason = reason });
+        using var current = await Client.GetAsync($"/api/inventory/{id}");
+        var version = current.StatusCode == HttpStatusCode.NotFound ? null
+            : (await current.Content.ReadFromJsonAsync<InventoryResponse>())!.Version;
+        return await Client.PutAsJsonAsync($"/api/inventory/{id}", new SetStockRequest
+            { OnHand = quantity, Reason = reason, ExpectedVersion = version });
     }
 
     public async Task<InventoryResponse> SetStockAsync(Guid id, int quantity, string reason = "Stocktake")

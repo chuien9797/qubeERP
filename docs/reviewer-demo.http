@@ -7,11 +7,15 @@
 @orderKey = replace-with-a-new-guid
 @rejectedKey = replace-with-another-new-guid
 @receiptId = replace-with-a-third-new-guid
+@inactiveOrderKey = replace-with-a-fourth-new-guid
+@manualReservationId = replace-with-a-fifth-new-guid
 @confirmedOrderId = paste-confirmed-order-id
 @rejectedOrderId = paste-rejected-order-id
 
-# All API responses include X-Malaysia-Time in ISO 8601 with +08:00.
-# Standard Date remains GMT; stored AtUtc fields remain UTC.
+# Run sections sequentially against a new SKU suffix. IDs/keys above must be real GUIDs
+# except the SKU suffix. Copy created IDs into the variables before continuing.
+# This walkthrough writes demo data. Generated docs/openapi contracts and the offline
+# HTML reference are read-only exports; examples there are illustrative, not real IDs.
 
 ### Create first product (201); copy response id into firstProductId
 POST {{products}}
@@ -30,6 +34,12 @@ GET {{products}}
 
 ### Search active catalogue products before pagination (200); Active does not imply stock availability
 GET {{products}}?search=mouse&isActive=true&offset=0&limit=20
+
+### Batch product lookup (200); this POST is read-only
+POST {{products}}/lookup
+Content-Type: application/json
+
+{"productIds":["{{firstProductId}}","{{secondProductId}}"]}
 
 ### Recent saved order activity (200); read-only, newest first, no global metrics implied
 GET {{orders}}?newestFirst=true&offset=0&limit=20
@@ -56,6 +66,23 @@ Idempotency-Key: {{orderKey}}
 ### Inspect saved reservation (200 Reserved); items contain original quantities 3 and 2, sorted by product ID
 GET {{inventory}}/reservations/{{confirmedOrderId}}
 
+### Inspect saved order (200 Confirmed); price snapshots give 3*25.50 + 2*10.00 = 96.50
+GET {{orders}}/{{confirmedOrderId}}
+
+### Replay the original order with reordered lines (200 Confirmed); same ID, no additional hold
+POST {{orders}}
+Content-Type: application/json
+Idempotency-Key: {{orderKey}}
+
+{"items":[{"productId":"{{secondProductId}}","quantity":2},{"productId":"{{firstProductId}}","quantity":3}]}
+
+### Changed payload with the original key (409 IDEMPOTENCY_KEY_CONFLICT); original hold stays at 3 and 2
+POST {{orders}}
+Content-Type: application/json
+Idempotency-Key: {{orderKey}}
+
+{"items":[{"productId":"{{firstProductId}}","quantity":4},{"productId":"{{secondProductId}}","quantity":2}]}
+
 ### First product: OnHand 20, Reserved 3, Available 17
 GET {{inventory}}/{{firstProductId}}
 
@@ -78,10 +105,16 @@ Content-Type: application/json
 
 {"operationId":"{{receiptId}}","quantity":5,"reason":"Supplier delivery"}
 
+### Replay the same stock receipt (200); original snapshot, no additional quantity
+POST {{inventory}}/{{firstProductId}}/receipts
+Content-Type: application/json
+
+{"operationId":"{{receiptId}}","quantity":5,"reason":"Supplier delivery"}
+
 ### First product: OnHand 25, Reserved 3, Available 22
 GET {{inventory}}/{{firstProductId}}
 
-### Replay rejected request above: still 409, even though stock now suffices
+### Replay rejected request above (409); original rejection persists even though stock now suffices
 POST {{orders}}
 Content-Type: application/json
 Idempotency-Key: {{rejectedKey}}
@@ -127,8 +160,78 @@ Content-Type: application/json
 ### Read the currently observed product state (200)
 GET {{products}}/{{firstProductId}}
 
+### Repeat the same inactive value (204); UpdatedAtUtc does not change
+PATCH {{products}}/{{firstProductId}}/status
+Content-Type: application/json
+
+{"isActive":false}
+
+### Missing boolean (400); explicit false must not be confused with an absent property
+PATCH {{products}}/{{firstProductId}}/status
+Content-Type: application/json
+
+{}
+
+### New order after deactivation is observed (422 INVALID_PRODUCT); no new order/hold is created
+POST {{orders}}
+Content-Type: application/json
+Idempotency-Key: {{inactiveOrderKey}}
+
+{"items":[{"productId":"{{firstProductId}}","quantity":1}]}
+
+### Existing cancelled order remains readable and unchanged (200 Cancelled)
+GET {{orders}}/{{confirmedOrderId}}
+
 ### Reactivate product (204); same-value requests leave UpdatedAtUtc unchanged
 PATCH {{products}}/{{firstProductId}}/status
 Content-Type: application/json
 
 {"isActive":true}
+
+### Create a standalone manual reservation (201); separate from sales orders
+POST {{inventory}}/reservations
+Content-Type: application/json
+
+{"reservationId":"{{manualReservationId}}","items":[{"productId":"{{firstProductId}}","quantity":1},{"productId":"{{secondProductId}}","quantity":2}]}
+
+### Inspect manual reservation (200 Reserved); original items are 1 and 2
+GET {{inventory}}/reservations/{{manualReservationId}}
+
+### Release this standalone hold directly (200 Released); use Order cancellation for an order-owned hold
+POST {{inventory}}/reservations/{{manualReservationId}}/release
+Content-Type: application/json
+
+{"reason":"Examiner walkthrough complete"}
+
+### Inspect released historical quantities (200 Released); quantities remain 1 and 2
+GET {{inventory}}/reservations/{{manualReservationId}}
+
+
+# Optional physical-count concurrency check. Use fresh real GUIDs and copy versions exactly.
+@countVersion = copy-version-from-first-get
+@refreshedCountVersion = copy-version-from-second-get
+@countReceiptId = replace-with-a-new-guid
+
+### Read existing inventory (200); copy version into countVersion
+GET {{inventory}}/{{firstProductId}}
+
+### Receive one unit after that snapshot (201)
+POST {{inventory}}/{{firstProductId}}/receipts
+Content-Type: application/json
+
+{"operationId":"{{countReceiptId}}","quantity":1,"reason":"Concurrent delivery example"}
+
+### Stale physical count (409 STOCK_VERSION_CONFLICT); receipt and ledger remain intact
+PUT {{inventory}}/{{firstProductId}}
+Content-Type: application/json
+
+{"onHand":95,"reason":"Count based on an older snapshot","expectedVersion":"{{countVersion}}"}
+
+### Reload inventory (200); review the real physical total and copy version into refreshedCountVersion
+GET {{inventory}}/{{firstProductId}}
+
+### Submit only after reviewing the count (200); 95 is illustrative, use the actual reviewed total
+PUT {{inventory}}/{{firstProductId}}
+Content-Type: application/json
+
+{"onHand":95,"reason":"Reviewed physical count","expectedVersion":"{{refreshedCountVersion}}"}

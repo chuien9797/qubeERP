@@ -30,7 +30,7 @@ public sealed class StockReceiptApiTests(InventoryApiFixture fixture) : IClassFi
         using var replay = await PostAsync(product, Request(50, "Delivery 001", request.OperationId));
         Assert.Equal(HttpStatusCode.OK, replay.StatusCode);
         Assert.Equal(receipt, await replay.Content.ReadFromJsonAsync<StockReceiptResponse>());
-        Assert.Equal(new InventoryResponse(product, 500, 20, 480), await BalanceAsync(product));
+        InventoryAssertions.EqualBalance(new InventoryResponse(product, 500, 20, 480), await BalanceAsync(product));
         var movement = Assert.Single(await fixture.GetMovementsAsync(product), x => x.MovementType == "StockReceipt");
         Assert.Equal(request.OperationId, movement.OperationId);
         Assert.Equal(50, movement.OnHandDelta);
@@ -164,7 +164,7 @@ public sealed class StockReceiptApiTests(InventoryApiFixture fixture) : IClassFi
         using var reservation = await reservationTask;
         Assert.Equal(HttpStatusCode.Created, receipt.StatusCode);
         Assert.Equal(HttpStatusCode.Created, reservation.StatusCode);
-        Assert.Equal(new InventoryResponse(product, 15, 10, 5), await BalanceAsync(product));
+        InventoryAssertions.EqualBalance(new InventoryResponse(product, 15, 10, 5), await BalanceAsync(product));
     }
 
     [Fact]

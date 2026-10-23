@@ -1,156 +1,146 @@
 param(
-    [ValidateRange(1, 65535)][int]$ProductPort = 5101,
-    [ValidateRange(1, 65535)][int]$InventoryPort = 5102,
-    [ValidateRange(1, 65535)][int]$OrderPort = 5103
+    [ValidateRange(1,65535)][int]$ProductPort=5101,
+    [ValidateRange(1,65535)][int]$InventoryPort=5102,
+    [ValidateRange(1,65535)][int]$OrderPort=5103,
+    [switch]$FromFiles
 )
-
-$ErrorActionPreference = 'Stop'
-$projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$outputFolder = Join-Path $projectRoot 'docs'
-$schemaFolder = Join-Path $outputFolder 'openapi'
-$utf8 = [Text.UTF8Encoding]::new($false)
-$services = @(
-    @{ Key = 'products'; Name = 'Product'; Port = $ProductPort; Count = 5 },
-    @{ Key = 'inventory'; Name = 'Inventory'; Port = $InventoryPort; Count = 7 },
-    @{ Key = 'orders'; Name = 'Order'; Port = $OrderPort; Count = 5 }
-)
-$methods = @('get', 'post', 'put', 'patch', 'delete', 'head', 'options')
-
-function Html($value) { [Net.WebUtility]::HtmlEncode([string]$value) }
-function JsonExample($value) {
-    if ($null -eq $value) { return '' }
-    return '<pre><code>' + (Html (ConvertTo-Json -InputObject $value -Depth 100)) + '</code></pre>'
+$ErrorActionPreference='Stop'
+$root=(Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+$docs=Join-Path $root 'docs'
+$schemas=Join-Path $docs 'openapi'
+$utf8=[Text.UTF8Encoding]::new($false)
+$services=@(@{Key='products';Port=$ProductPort;Count=5},@{Key='inventory';Port=$InventoryPort;Count=7},@{Key='orders';Port=$OrderPort;Count=5})
+$methods=@('get','post','put','patch','delete','head','options')
+$md=[Text.StringBuilder]::new()
+$html=[Text.StringBuilder]::new()
+function Html($v){[Net.WebUtility]::HtmlEncode([string]$v)}
+function MdCell($v){([string]$v).Replace('|','\|').Replace("`r",'').Replace("`n",' ')}
+function Paragraph([string]$v){[void]$md.AppendLine($v+"`n");[void]$html.AppendLine('<p>'+(Html $v)+'</p>')}
+function Heading([int]$level,[string]$v,[string]$anchor){
+ if($anchor){[void]$md.AppendLine('<a id="'+$anchor+'"></a>'+"`n")}
+ [void]$md.AppendLine(('#'*$level)+' '+$v+"`n")
+ [void]$html.AppendLine('<h'+$level+$(if($anchor){' id="'+$anchor+'"'})+'>'+(Html $v)+'</h'+$level+'>')
 }
-function SchemaExample($schema, $document) {
-    if ($null -eq $schema) { return $null }
-    if ($null -ne $schema.example) { return ,$schema.example }
-    if ($schema.'$ref') {
-        $name = $schema.'$ref'.Split('/')[-1]
-        return SchemaExample $document.components.schemas.$name $document
-    }
-    if ($schema.type -eq 'array') {
-        $item = SchemaExample $schema.items $document
-        if ($null -ne $item) { return ,@($item) }
-    }
-    return $null
+function Table($headers,$rows){
+ [void]$md.AppendLine('| '+(($headers|ForEach-Object{MdCell $_})-join ' | ')+' |')
+ [void]$md.AppendLine('| '+(($headers|ForEach-Object{'---'})-join ' | ')+' |')
+ [void]$html.AppendLine('<div class="table"><table><thead><tr>'+(($headers|ForEach-Object{'<th>'+(Html $_)+'</th>'})-join '')+'</tr></thead><tbody>')
+ foreach($row in $rows){
+  [void]$md.AppendLine('| '+(($row|ForEach-Object{MdCell $_})-join ' | ')+' |')
+  [void]$html.AppendLine('<tr>'+(($row|ForEach-Object{'<td>'+(Html $_)+'</td>'})-join '')+'</tr>')
+ }
+ [void]$md.AppendLine();[void]$html.AppendLine('</tbody></table></div>')
 }
-function MediaExamples($media, $document) {
-    if ($null -ne $media.example) { return JsonExample $media.example }
-    if ($media.examples) {
-        return ($media.examples.PSObject.Properties | ForEach-Object {
-            '<p><strong>' + (Html $_.Name) + '</strong> ' + (Html $_.Value.summary) + '</p>' + (JsonExample $_.Value.value)
-        }) -join "`n"
-    }
-    return JsonExample (SchemaExample $media.schema $document)
+function JsonText($value){
+ $json=ConvertTo-Json -InputObject $value -Depth 100
+ [regex]::Replace($json,'("[^"\\]*AtUtc"\s*:\s*")([^"\\]+)(")',{
+  param($m)
+  $date=[DateTimeOffset]::Parse($m.Groups[2].Value,[Globalization.CultureInfo]::InvariantCulture)
+  $m.Groups[1].Value+$date.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.FFFFFFF'Z'",[Globalization.CultureInfo]::InvariantCulture)+$m.Groups[3].Value
+ })
 }
-
-# Fetch and validate all three contracts before replacing any handover artifact.
-# This exporter makes only read-only requests and never creates demonstration data.
-foreach ($service in $services) {
-    $url = 'http://127.0.0.1:' + $service.Port + '/swagger/v1/swagger.json'
-    $response = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 30
-    $document = $response.Content | ConvertFrom-Json
-    $operations = @($document.paths.PSObject.Properties | ForEach-Object {
-        $_.Value.PSObject.Properties | Where-Object { $_.Name -in $methods }
-    })
-    if (-not $document.openapi -or $operations.Count -ne $service.Count) {
-        throw "Unexpected $($service.Name) contract at $url; expected $($service.Count) documented operations. Rebuild the matching API version."
-    }
-    if ($service.Key -eq 'products' -and -not $document.paths.'/api/products/{productId}/status'.patch.responses.'415') {
-        throw 'Product status documentation is stale. Rebuild ProductService before exporting.'
-    }
-    $service.Raw = $response.Content
-    $service.Document = $document
+function Example($value,[string]$label){
+ if($null -eq $value){return}
+ Paragraph $label
+ $json=JsonText $value
+ [void]$md.AppendLine('```json'+"`n"+$json+"`n"+'```'+"`n")
+ [void]$html.AppendLine('<pre><code>'+(Html $json)+'</code></pre>')
 }
-
-$generatedAt = [DateTimeOffset]::UtcNow.ToOffset([TimeSpan]::FromHours(8)).ToString('yyyy-MM-dd HH:mm:ss zzz')
-$html = [Text.StringBuilder]::new()
-[void]$html.AppendLine(@'
-<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>QubeErp API reference — examiner handover</title>
-<style>
-:root{color-scheme:light;--ink:#17253e;--blue:#174abd;--line:#d9e1ee}*{box-sizing:border-box}body{margin:0;overflow-wrap:anywhere;background:#fff;color:var(--ink);font:15px/1.65 system-ui,-apple-system,"Segoe UI",sans-serif}header{padding:38px max(24px,calc((100vw - 1120px)/2));background:#101b30;color:#fff}header p{max-width:850px;color:#dce7ff}h1{font-size:32px;line-height:1.2;margin:0 0 12px}h2{font-size:25px;margin-top:38px}h3{font-size:19px}h4{font-size:15px;margin:18px 0 6px}a{color:var(--blue)}header a{color:#dce7ff}main{max-width:1168px;padding:0 24px 50px;margin:auto}nav{padding:16px 0;border-bottom:1px solid var(--line);display:flex;flex-wrap:wrap;gap:20px}section{scroll-margin-top:20px}article{margin:22px 0;border:1px solid var(--line);border-radius:6px;padding:22px;break-inside:avoid}article h3{margin:0 0 10px;overflow-wrap:anywhere}.method{display:inline-block;background:#eaf0ff;color:#173d92;font:700 12px/1.6 system-ui;padding:3px 9px;margin-right:8px;border-radius:3px}code{font-family:Consolas,monospace;font-size:13px;overflow-wrap:anywhere}pre{background:#f5f7fb;border:1px solid #e1e7f0;padding:14px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px;line-height:1.5}table{width:100%;border-collapse:collapse;margin:12px 0;font-size:14px}th,td{text-align:left;vertical-align:top;padding:10px;border-bottom:1px solid var(--line);overflow-wrap:anywhere}th{background:#f5f7fb;color:#203655}.table-wrap{overflow:auto}.notice{border-left:3px solid #2759c5;background:#f3f6fc;padding:12px 16px;margin:20px 0}.meta{color:#52627a}.status{font-weight:700;min-width:60px}details{margin-top:10px}summary{cursor:pointer;font-weight:600}footer{border-top:1px solid var(--line);padding-top:20px;margin-top:32px;color:#52627a}@media(max-width:600px){article{padding:14px}h1{font-size:27px}th,td{padding:7px}}@media print{header{background:#fff;color:#17253e;padding:12px 24px}header p,header a{color:#17253e}nav{display:none}article{break-inside:auto}pre{white-space:pre-wrap}details{display:block}a{color:inherit}body{font-size:11pt}}
-</style></head><body><header><h1>QubeErp API reference</h1>
-<p>Examiner handover · Product, Inventory and Order services · Local assessment/demo</p>
-'@)
-[void]$html.AppendLine('<p>Exported from the running APIs: ' + (Html $generatedAt) + ' (Malaysia time). Regenerate with <code>scripts/Export-ApiDocumentation.ps1</code>.</p></header><main>')
-[void]$html.AppendLine('<nav aria-label="Document sections"><a href="#workflow">Review workflow</a><a href="#products">Products</a><a href="#inventory">Inventory</a><a href="#orders">Orders</a><a href="reviewer-demo.http">HTTP walkthrough</a><a href="final-review.txt">Review evidence</a></nav>')
-[void]$html.AppendLine(@'
-<section id="workflow"><h2>How to review</h2><p>Start with README for setup and the sequential HTTP walkthrough for a complete demonstration. This offline reference is generated from the actual OpenAPI metadata. JSON examples illustrate schemas and states; their GUIDs are not real records or captured command results.</p>
-<div class="notice"><strong>Local demo boundary.</strong> The APIs have no login/role permissions. Keep them on localhost.</div>
-<ol><li>Create two products and initialise stock through Inventory.</li><li>Create a multi-item order with a new Idempotency-Key; inspect balances, reservation items and movements.</li><li>Repeat the original key/body; verify the same order and no second hold. A new shortage request is rejected atomically.</li><li>Add a stock receipt with a stable operationId; replay it without adding twice. Rejected orders retain their original outcome.</li><li>Cancel a Confirmed order; verify Cancelled only after Released, unchanged OnHand and one Release per line.</li><li>Deactivate/reactivate a product; inspect unchanged history. An already validated in-flight/Pending order may still complete.</li></ol>
-<h3>Rules that matter to callers</h3><ul><li>Send JSON for body-bearing operations. Bodies are limited to 65,536 bytes. Error responses use application/problem+json; order errors use numeric status and separate orderStatus.</li><li>Use 1–50 distinct products, quantities 1–10,000 per order/reservation line. Keep the original idempotency key/ID and immutable payload on retries. A new identity represents a separate operation.</li><li>Inventory timeout, 408, connection loss or 5xx can follow a committed hold. Repeat the original order POST to recover Pending. GET resources never perform reconciliation.</li><li>Absolute stock counts have no replay identity or automatic uncertain SQL write retry. Inspect stock and movements after a lost response before making a separate count.</li><li>Use Order cancellation for order-owned reservations. Direct Inventory release does not update OrderDb. Keep the first cancellation reason.</li><li>Reservation items and receipt/ledger After balances are historical. GET inventory returns current stock.</li><li>Catalogue isActive is independent of stock. Deactivation is last committed write wins and has no cross-service immediate fence; direct Inventory reservations do not check catalogue activation.</li><li>Amounts use backend decimal arithmetic. JavaScript numeric tooling may lose precision at extreme decimal(18,2) values; this is documented in the final review.</li></ul></section>
-'@)
-
-foreach ($service in $services) {
-    $document = $service.Document
-    [void]$html.AppendLine('<section id="' + $service.Key + '"><h2>' + (Html $document.info.title) + '</h2><p>' + (Html $document.info.description) + '</p>')
-    [void]$html.AppendLine('<p><a href="http://localhost:' + $service.Port + '/swagger">Live Swagger</a> · <a href="openapi/' + $service.Key + '.openapi.json">OpenAPI JSON</a></p>')
-    [void]$html.AppendLine('<div class="table-wrap"><table><thead><tr><th>Method</th><th>Path</th><th>Purpose</th></tr></thead><tbody>')
-    foreach ($path in $document.paths.PSObject.Properties) {
-        foreach ($entry in $path.Value.PSObject.Properties | Where-Object { $_.Name -in $methods }) {
-            [void]$html.AppendLine('<tr><td>' + (Html $entry.Name.ToUpperInvariant()) + '</td><td><a href="#' + (Html $entry.Value.operationId) + '"><code>' + (Html $path.Name) + '</code></a></td><td>' + (Html $entry.Value.summary) + '</td></tr>')
-        }
-    }
-    [void]$html.AppendLine('</tbody></table></div>')
-    foreach ($path in $document.paths.PSObject.Properties) {
-        foreach ($entry in $path.Value.PSObject.Properties | Where-Object { $_.Name -in $methods }) {
-            $operation = $entry.Value
-            [void]$html.AppendLine('<article id="' + (Html $operation.operationId) + '"><h3><span class="method">' + (Html $entry.Name.ToUpperInvariant()) + '</span><code>' + (Html $path.Name) + '</code></h3><p><strong>' + (Html $operation.summary) + '</strong></p><p>' + (Html $operation.description) + '</p>')
-            if ($operation.parameters) {
-                [void]$html.AppendLine('<h4>Parameters</h4><div class="table-wrap"><table><thead><tr><th>Name / location</th><th>Type / required</th><th>Meaning</th></tr></thead><tbody>')
-                foreach ($parameter in $operation.parameters) {
-                    $type = [string]$parameter.schema.type
-                    if ($parameter.schema.enum) { $type += ': ' + ($parameter.schema.enum -join ', ') }
-                    [void]$html.AppendLine('<tr><td><code>' + (Html $parameter.name) + '</code> / ' + (Html $parameter.in) + '</td><td>' + (Html $type) + ' / ' + $(if ($parameter.required) { 'required' } else { 'optional' }) + '</td><td>' + (Html $parameter.description) + '</td></tr>')
-                }
-                [void]$html.AppendLine('</tbody></table></div>')
-            }
-            if ($operation.requestBody) {
-                [void]$html.AppendLine('<h4>Request body example (illustrative)</h4>')
-                $bodyMedia = $operation.requestBody.content.'application/json'
-                $bodyType = 'application/json'
-                if ($null -eq $bodyMedia) {
-                    $firstMedia = @($operation.requestBody.content.PSObject.Properties)[0]
-                    $bodyMedia = $firstMedia.Value
-                    $bodyType = $firstMedia.Name
-                }
-                [void]$html.AppendLine('<p><code>' + (Html $bodyType) + '</code></p>' + (MediaExamples $bodyMedia $document))
-            }
-            [void]$html.AppendLine('<h4>Responses</h4>')
-            foreach ($response in $operation.responses.PSObject.Properties) {
-                [void]$html.AppendLine('<div><p><span class="status">' + (Html $response.Name) + '</span> ' + (Html $response.Value.description) + '</p>')
-                foreach ($media in $response.Value.content.PSObject.Properties) {
-                    $example = MediaExamples $media.Value $document
-                    if ($example) { [void]$html.AppendLine('<details><summary>Illustrative response · ' + (Html $media.Name) + '</summary>' + $example + '</details>') }
-                }
-                [void]$html.AppendLine('</div>')
-            }
-            [void]$html.AppendLine('</article>')
-        }
-    }
-    [void]$html.AppendLine('<h3>Schemas and field descriptions</h3>')
-    foreach ($schema in $document.components.schemas.PSObject.Properties) {
-        [void]$html.AppendLine('<details><summary>' + (Html $schema.Name) + '</summary><p>' + (Html $schema.Value.description) + '</p>')
-        [void]$html.AppendLine('<div class="table-wrap"><table><thead><tr><th>Field</th><th>Schema</th><th>Description</th></tr></thead><tbody>')
-        foreach ($property in $schema.Value.properties.PSObject.Properties) {
-            $type = [string]$property.Value.type
-            if ($property.Value.'$ref') { $type = $property.Value.'$ref'.Split('/')[-1] }
-            if ($property.Name -in $schema.Value.required) { $type += ' (required)' }
-            [void]$html.AppendLine('<tr><td><code>' + (Html $property.Name) + '</code></td><td>' + (Html $type) + '</td><td>' + (Html $property.Value.description) + '</td></tr>')
-        }
-        [void]$html.AppendLine('</tbody></table></div></details>')
-    }
-    [void]$html.AppendLine('</section>')
+function SchemaExample($schema,$document){
+ if($null -eq $schema){return $null}
+ if($null -ne $schema.example){return ,$schema.example}
+ if($schema.'$ref'){return SchemaExample $document.components.schemas.($schema.'$ref'.Split('/')[-1]) $document}
+ if($schema.type -eq 'array'){$item=SchemaExample $schema.items $document;if($null -ne $item){return ,@($item)}}
+ return $null
 }
-[void]$html.AppendLine('<footer>QubeErp API reference.</footer></main></body></html>')
-
-New-Item -ItemType Directory -Path $schemaFolder -Force | Out-Null
-foreach ($service in $services) {
-    [IO.File]::WriteAllText((Join-Path $schemaFolder ($service.Key + '.openapi.json')), $service.Raw, $utf8)
+function MediaExamples($media,$document,[string]$label){
+ if($null -ne $media.example){Example $media.example $label;return}
+ if($media.examples){foreach($e in $media.examples.PSObject.Properties){Example $e.Value.value ($label+' — '+$e.Name+': '+$e.Value.summary)};return}
+ Example (SchemaExample $media.schema $document) $label
 }
-[IO.File]::WriteAllText((Join-Path $outputFolder 'api-reference.html'), $html.ToString(), $utf8)
-Write-Output "Exported 17 operations across 3 OpenAPI documents and docs/api-reference.html. GET requests only; no business records changed."
-
-
+function SchemaType($schema){
+ if($null -eq $schema){return '—'}
+ if($schema.'$ref'){return $schema.'$ref'.Split('/')[-1]}
+ if($schema.type -eq 'array'){return 'array of '+(SchemaType $schema.items)}
+ $type=[string]$schema.type
+ foreach($composition in 'allOf','anyOf','oneOf'){if($schema.$composition){$type=($schema.$composition|ForEach-Object{SchemaType $_})-join ' / '}}
+ if($schema.format){$type+=' ('+$schema.format+')'}
+ if($schema.enum){$type+=': '+($schema.enum -join ', ')}
+ if($schema.nullable){$type+='; nullable'}
+ if(-not $type){$type='object'}
+ return $type
+}
+foreach($service in $services){
+ $raw=if($FromFiles){[IO.File]::ReadAllText((Join-Path $schemas ($service.Key+'.openapi.json')))}else{(Invoke-WebRequest ('http://127.0.0.1:'+$service.Port+'/swagger/v1/swagger.json') -UseBasicParsing -TimeoutSec 30).Content}
+ $options=@{}
+ if((Get-Command ConvertFrom-Json).Parameters.ContainsKey('DateKind')){$options.DateKind='String'}
+ $document=ConvertFrom-Json -InputObject $raw @options
+ $operations=@($document.paths.PSObject.Properties|ForEach-Object{$_.Value.PSObject.Properties|Where-Object{$_.Name -in $methods}})
+ if(-not $document.openapi -or $operations.Count -ne $service.Count){throw "Unexpected $($service.Key) contract; expected $($service.Count) operations."}
+ $service.Raw=$raw;$service.Document=$document
+}
+[void]$html.AppendLine('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>QubeErp API reference</title><style>body{max-width:1120px;margin:32px auto;padding:0 24px;color:#172554;background:white;font:15px/1.65 Arial,sans-serif;overflow-wrap:anywhere}h1,h2,h3{line-height:1.3}h2{margin-top:42px;border-bottom:1px solid #cbd5e1;padding-bottom:12px}h3{margin-top:30px}a{color:#174abd}.table{overflow:auto}table{width:100%;border-collapse:collapse;margin:16px 0}th,td{text-align:left;vertical-align:top;padding:10px;border-bottom:1px solid #d9e1ee}th{background:#eff6ff}pre{padding:16px;background:#f8fafc;overflow:auto;white-space:pre-wrap}code{font:13px/1.6 Consolas,monospace}</style></head><body>')
+Heading 1 'QubeErp API reference' ''
+Paragraph 'This reference describes the Product, Inventory and Order APIs, including request formats, responses and error handling. It is based on the exported OpenAPI contracts. Examples are illustrative, not captured command results; use IDs and versions returned by your environment.'
+[void]$md.AppendLine('See [README](../README.md) for setup and architecture, or the [HTTP walkthrough](reviewer-demo.http) for a complete example workflow.'+"`n")
+[void]$html.AppendLine('<p>See <a href="../README.md">README</a> for setup and architecture, or the <a href="reviewer-demo.http">HTTP walkthrough</a> for a complete example workflow.</p>')
+Heading 2 'Calling conventions' 'conventions'
+Paragraph 'Use JSON for command bodies. Preserve the original idempotency key or operation ID and payload on retries. A timed-out write may already have committed. GET endpoints are read-only.'
+Paragraph 'For existing physical stock counts, send expectedVersion from GET inventory. A stale or missing version returns 409 STOCK_VERSION_CONFLICT without changing stock or movements. Refresh and review before submitting a new count; omit the version only when initialising absent stock.'
+Paragraph 'Recover Pending orders through the original order POST. Use Order cancellation for order-owned reservations. Historical reservation quantities and movement balances are distinct from current inventory.'
+Paragraph 'Product activation is independent of stock. Orders already validated before deactivation may still complete. Consumed and Fulfilled are compatibility states; there are no public consumption or fulfilment commands.'
+Paragraph 'Errors use application/problem+json. Numeric status is the HTTP status; orderStatus, when present, is the saved order state. UTC timestamp fields use UTC offsets; Angular displays Malaysia time. The local demo has no authentication.'
+Heading 2 'Common errors' 'common-errors'
+$rows=[Collections.Generic.List[object]]::new()
+$rows.Add(@('413','JSON-body endpoints: REQUEST_TOO_LARGE when the request exceeds 65,536 bytes.'))
+$rows.Add(@('415','JSON-body endpoints: UNSUPPORTED_MEDIA_TYPE; use Content-Type: application/json.'))
+$rows.Add(@('500','Unexpected server/database failure. ProblemDetails exposes an errorCode and traceId, not internal exception details.'))
+Table @('Status','Meaning') $rows
+foreach($service in $services){
+ $document=$service.Document
+ Heading 2 $document.info.title $service.Key
+ Paragraph $document.info.description
+ [void]$md.AppendLine('[Live Swagger](http://localhost:'+$service.Port+'/swagger) · [OpenAPI JSON](openapi/'+$service.Key+'.openapi.json)'+"`n")
+ [void]$html.AppendLine('<p><a href="http://localhost:'+$service.Port+'/swagger">Live Swagger</a> · <a href="openapi/'+$service.Key+'.openapi.json">OpenAPI JSON</a></p>')
+ $rows=[Collections.Generic.List[object]]::new()
+ foreach($path in $document.paths.PSObject.Properties){foreach($entry in $path.Value.PSObject.Properties|Where-Object{$_.Name -in $methods}){$rows.Add(@($entry.Name.ToUpperInvariant(),$path.Name,$entry.Value.summary))}}
+ Table @('Method','Path','Purpose') $rows
+ foreach($path in $document.paths.PSObject.Properties){foreach($entry in $path.Value.PSObject.Properties|Where-Object{$_.Name -in $methods}){
+  $op=$entry.Value
+  Heading 3 ($entry.Name.ToUpperInvariant()+' '+$path.Name) $op.operationId
+  Paragraph $op.summary
+  Paragraph $op.description
+  if($op.parameters){
+   $rows=[Collections.Generic.List[object]]::new()
+   foreach($p in $op.parameters){$rows.Add(@($p.name,$p.in,(SchemaType $p.schema),$(if($p.required){'Yes'}else{'No'}),$p.description))}
+   Table @('Parameter','Location','Type','Required','Description') $rows
+  }
+  if($op.requestBody){
+   Heading 4 'Request body' ''
+   Paragraph $(if($op.requestBody.required){'Required JSON body.'}else{'Optional JSON body.'})
+   $media=@($op.requestBody.content.PSObject.Properties | Where-Object { $_.Name -eq 'application/json' })
+   if(-not $media){$media=@($op.requestBody.content.PSObject.Properties | Select-Object -First 1)}
+   MediaExamples $media[0].Value $document ('Request — '+$media[0].Name)
+  }
+  Heading 4 'Responses' ''
+  $rows=[Collections.Generic.List[object]]::new()
+  foreach($response in $op.responses.PSObject.Properties){$description=if($response.Name -in @('413','415','500')){'See Common errors.'}else{$response.Value.description};$rows.Add(@($response.Name,$description))}
+  Table @('Status','Meaning') $rows
+  foreach($response in $op.responses.PSObject.Properties){foreach($media in $response.Value.content.PSObject.Properties){MediaExamples $media.Value $document ('Response '+$response.Name+' — '+$media.Name)}}
+ }}
+ Heading 3 'Schemas' ''
+ foreach($schema in $document.components.schemas.PSObject.Properties){
+  Heading 4 $schema.Name ''
+  if($schema.Value.description){Paragraph $schema.Value.description}
+  if(-not $schema.Value.properties){Paragraph (SchemaType $schema.Value);continue}
+  $rows=[Collections.Generic.List[object]]::new()
+  foreach($p in $schema.Value.properties.PSObject.Properties){$description=if($p.Value.description){$p.Value.description}else{'—'};$rows.Add(@($p.Name,(SchemaType $p.Value),$(if($p.Name -in $schema.Value.required){'Yes'}else{'No'}),$description))}
+  Table @('Field','Type','Required','Description') $rows
+ }
+}
+[void]$html.AppendLine('</body></html>')
+New-Item -ItemType Directory -Path $schemas -Force | Out-Null
+foreach($service in $services){[IO.File]::WriteAllText((Join-Path $schemas ($service.Key+'.openapi.json')),$service.Raw,$utf8)}
+[IO.File]::WriteAllText((Join-Path $docs 'api-reference.md'),$md.ToString(),$utf8)
+[IO.File]::WriteAllText((Join-Path $docs 'api-reference.html'),$html.ToString(),$utf8)
+Write-Output 'Exported 17 operations to Markdown, HTML and 3 OpenAPI files. No business data changed.'

@@ -1,0 +1,1325 @@
+{
+  "openapi": "3.0.4",
+  "info": {
+    "title": "QubeErp Inventory API",
+    "description": "Maintain physical counts, receive stock and reserve multiple products atomically. Confirmed orders hold stock without shipping it. Example GUIDs illustrate request shapes; use IDs returned by your API.",
+    "version": "v1"
+  },
+  "paths": {
+    "/api/inventory/{productId}": {
+      "put": {
+        "tags": [
+          "Inventory"
+        ],
+        "summary": "Set a product's physical stock count.",
+        "description": "Supply the product ID, total physical quantity and reason. For existing stock, send expectedVersion from the last GET inventory response. A stale or omitted version returns 409 STOCK_VERSION_CONFLICT without changing stock or movements; reload and review the count before a new submission. Omit expectedVersion or send null only to initialise absent stock. Concurrent opening counts never overwrite the winning count. This replaces the previous count; it does not add a quantity. Use POST receipts to add newly received stock instead. Reserved stock stays unchanged, so the new count cannot be lower than Reserved. A product must exist before its first stock count is created. Absolute writes are not automatically retried after uncertain database errors. If the response is lost, inspect stock and movements before making a separate count; never assume failure or blindly retry.",
+        "operationId": "SetPhysicalStock",
+        "parameters": [
+          {
+            "name": "productId",
+            "in": "path",
+            "description": "ID returned by ProductService.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetStockRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetStockRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetStockRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Initialised or replaced the physical count; Reserved is preserved. An unchanged count creates no movement.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InventoryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid product ID, onHand, reason or expectedVersion.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "STOCK_NOT_FOUND: the stock row was absent during the update.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "STOCK_VERSION_CONFLICT: stock changed or an existing count omitted expectedVersion; reload and review before resubmission. STOCK_BELOW_RESERVED: the count is below Reserved. No stock or ledger changes commit.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "title": "Stock changed. Reload inventory and review the physical count before saving again.",
+                  "status": 409,
+                  "errorCode": "STOCK_VERSION_CONFLICT"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "PRODUCT_NOT_FOUND: a missing product cannot receive its first stock count.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "PRODUCT_UNAVAILABLE: ProductService could not validate a first stock count. No stock was initialised.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected server/database failure. ProblemDetails contains an errorCode and traceId; internal exception details are not exposed.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "REQUEST_TOO_LARGE: request body exceeds the 65,536-byte limit.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "UNSUPPORTED_MEDIA_TYPE: send a JSON body with Content-Type: application/json.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Inventory"
+        ],
+        "summary": "Check a product's stock balance.",
+        "description": "Retrieve OnHand, Reserved, AvailableQuantity and an opaque Base64 version. Use that version as expectedVersion for a subsequent physical count. Receipts, reservations, releases and changed physical counts invalidate previous versions. AvailableQuantity equals OnHand minus Reserved. A product without an initial stock count returns 404.",
+        "operationId": "GetStockBalance",
+        "parameters": [
+          {
+            "name": "productId",
+            "in": "path",
+            "description": "ID returned by ProductService.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current physical and reserved quantities. availableQuantity is OnHand minus Reserved.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InventoryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Product ID must not be empty.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "STOCK_NOT_FOUND: inventory has not been initialised for this product.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected server/database failure. ProblemDetails contains an errorCode and traceId; internal exception details are not exposed.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/inventory/{productId}/movements": {
+      "get": {
+        "tags": [
+          "Inventory"
+        ],
+        "summary": "View a product's stock movements.",
+        "description": "Retrieve opening stock, stocktake corrections, receipts, reservations and releases, oldest first by movement ID. Reservations increase Reserved; releases decrease Reserved. Both leave physical OnHand unchanged. Movement IDs identify audit rows, not orders. Reserve and Release use the original order/reservation ID as operationId. The After fields are historical balances immediately after that operation. This endpoint is read-only. Use offset and limit to page through the results.",
+        "operationId": "ListStockMovements",
+        "parameters": [
+          {
+            "name": "productId",
+            "in": "path",
+            "description": "ID returned by ProductService.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Number of records to skip, starting at 0. Default 0.",
+            "schema": {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer",
+              "format": "int32",
+              "default": 0
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Page size from 1 to 200. Default 100.",
+            "schema": {
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer",
+              "format": "int32",
+              "default": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Audit movements ordered by movement ID, oldest first. A product with zero opening stock can have an empty ledger.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/StockMovementResponse"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid product ID or pagination bounds.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "STOCK_NOT_FOUND: inventory has not been initialised for this product.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected server/database failure. ProblemDetails contains an errorCode and traceId; internal exception details are not exposed.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/inventory/{productId}/receipts": {
+      "post": {
+        "tags": [
+          "Inventory"
+        ],
+        "summary": "Add received stock to a product.",
+        "description": "Supply the product ID of initialised inventory and the additional quantity received. Existing stock is increased; Reserved stays unchanged. Supply a unique operation ID. Keep that ID and the same quantity and reason when retrying; a successful receipt is applied once. Use a new operation ID for a separate delivery. The response contains the original balances after this receipt, even on a later retry. Use PUT to initialise inventory or correct the total physical count.",
+        "operationId": "ReceiveStock",
+        "parameters": [
+          {
+            "name": "productId",
+            "in": "path",
+            "description": "ID returned by ProductService.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReceiveStockRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReceiveStockRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReceiveStockRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Receipt committed once with its ledger entry. The response captures balances immediately after that receipt.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StockReceiptResponse"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Same operation ID and payload replayed. Returns the original receipt snapshot; stock is not increased again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StockReceiptResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid product ID, operation ID, positive quantity or reason.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "STOCK_NOT_FOUND: initialise inventory with PUT before receiving stock.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "RECEIPT_PAYLOAD_CONFLICT for changed product/quantity/reason, or STOCK_CAPACITY_EXCEEDED for integer overflow. No additional stock change.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "title": "Operation ID was already used for a different receipt.",
+                  "status": 409,
+                  "errorCode": "RECEIPT_PAYLOAD_CONFLICT"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "RECEIPT_UNAVAILABLE: the outcome could not be confirmed after SQL retries. Retry with the same operation ID and payload.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected server/database failure. ProblemDetails contains an errorCode and traceId; internal exception details are not exposed.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "REQUEST_TOO_LARGE: request body exceeds the 65,536-byte limit.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "UNSUPPORTED_MEDIA_TYPE: send a JSON body with Content-Type: application/json.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/inventory/reservations": {
+      "post": {
+        "tags": [
+          "Reservations"
+        ],
+        "summary": "Reserve stock for selected products.",
+        "description": "Supply a unique reservation ID and product quantities. Preserve the same ID and items when retrying; use a new ID for a separate reservation. If any product has insufficient stock, nothing is reserved and that request keeps its rejected result. OrderService normally calls this endpoint using the order ID. A direct manual reservation creates a standalone stock hold, not a sales order. Inventory checks its own stock rules and does not call ProductService to enforce catalogue Active status.",
+        "operationId": "ReserveStock",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateReservationRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateReservationRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateReservationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "All items reserved atomically; one Reserve movement per item. Location identifies the reservation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReservationResponse"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Successful original reservation replayed with no additional hold or movements. Its current status may be Reserved or Released; a terminal replay never reserves again. Consumed is recognised for compatibility but has no public command.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReservationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid reservation ID or items; supply 1–50 distinct products with quantities of 1–10,000.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "INSUFFICIENT_STOCK with reservationId and original shortfalls, or RESERVATION_PAYLOAD_CONFLICT for changed items. A shortage is durable and reserves nothing; replay stays rejected after restock.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "title": "Insufficient stock.",
+                  "status": 409,
+                  "errorCode": "INSUFFICIENT_STOCK",
+                  "reservationId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+                  "shortfalls": [
+                    {
+                      "productId": "11111111-1111-1111-1111-111111111111",
+                      "requested": 3,
+                      "available": 1
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "REQUEST_TOO_LARGE: request body exceeds the 65,536-byte limit.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "RESERVATION_UNAVAILABLE: reservation could not complete after bounded SQL deadlock retries, or its winning record could not be loaded. Keep the same ID when retrying.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected server/database failure. ProblemDetails contains an errorCode and traceId; internal exception details are not exposed.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "UNSUPPORTED_MEDIA_TYPE: send a JSON body with Content-Type: application/json.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/inventory/reservations/{reservationId}/release": {
+      "post": {
+        "tags": [
+          "Reservations"
+        ],
+        "summary": "Release all stock held by a reservation.",
+        "description": "Uses the original persisted lines and reservation ID. Released replays return 200 without another movement; Rejected or Consumed returns 409. OnHand is unchanged. The first committed release reason is retained in the ledger. For an order-owned hold, use OrderService cancellation so the order and inventory states are coordinated. Direct Inventory release does not update OrderDb.",
+        "operationId": "ReleaseReservation",
+        "parameters": [
+          {
+            "name": "reservationId",
+            "in": "path",
+            "description": "Original reservation ID; for an order reservation this is its orderId. Use the same ID to inspect a rejected result.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReleaseReservationRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReleaseReservationRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReleaseReservationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Released or already Released. Original persisted quantities are released once; OnHand is unchanged. First release reason stays in the ledger.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReservationResponse"
+                },
+                "example": {
+                  "reservationId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+                  "status": "Released",
+                  "failureCode": null,
+                  "shortfalls": [ ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid reservation ID or missing/invalid release reason.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "RESERVATION_NOT_FOUND: no stored reservation outcome exists.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "RESERVATION_NOT_RELEASABLE: Rejected, Consumed or another invalid state; no stock or ledger change.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "RELEASE_UNAVAILABLE: bounded deadlock retries exhausted. Retry the same reservation identity.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected server/database failure. ProblemDetails contains an errorCode and traceId; internal exception details are not exposed.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "REQUEST_TOO_LARGE: request body exceeds the 65,536-byte limit.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "UNSUPPORTED_MEDIA_TYPE: send a JSON body with Content-Type: application/json.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/inventory/reservations/{reservationId}": {
+      "get": {
+        "tags": [
+          "Reservations"
+        ],
+        "summary": "View a reservation's outcome and original product quantities.",
+        "description": "Returns original persisted productId/quantity lines, ordered by product ID, for Reserved, Released, Consumed and Rejected outcomes. Quantities describe the historical request, not current stock balances. Rejected results retain their original failure code and shortfalls. This read never changes stock or contacts ProductService.",
+        "operationId": "GetReservation",
+        "parameters": [
+          {
+            "name": "reservationId",
+            "in": "path",
+            "description": "Original reservation ID; for an order reservation this is its orderId. Use the same ID to inspect a rejected result.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Stored Reserved, Released, Consumed or Rejected outcome with original productId/quantity items. These historical quantities are not current global Reserved balances. Rejected results retain their original failureCode and shortfalls. Read-only; no ProductService lookup.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReservationDetailsResponse"
+                },
+                "examples": {
+                  "Reserved": {
+                    "summary": "Original items held by the reservation",
+                    "value": {
+                      "reservationId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+                      "status": "Reserved",
+                      "failureCode": null,
+                      "shortfalls": [ ],
+                      "items": [
+                        {
+                          "productId": "11111111-1111-1111-1111-111111111111",
+                          "quantity": 3
+                        },
+                        {
+                          "productId": "22222222-2222-2222-2222-222222222222",
+                          "quantity": 2
+                        }
+                      ]
+                    }
+                  },
+                  "Released": {
+                    "summary": "Original items after release; quantities remain historical",
+                    "value": {
+                      "reservationId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+                      "status": "Released",
+                      "failureCode": null,
+                      "shortfalls": [ ],
+                      "items": [
+                        {
+                          "productId": "11111111-1111-1111-1111-111111111111",
+                          "quantity": 3
+                        },
+                        {
+                          "productId": "22222222-2222-2222-2222-222222222222",
+                          "quantity": 2
+                        }
+                      ]
+                    }
+                  },
+                  "Consumed": {
+                    "summary": "Compatibility state; no public consumption command",
+                    "value": {
+                      "reservationId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+                      "status": "Consumed",
+                      "failureCode": null,
+                      "shortfalls": [ ],
+                      "items": [
+                        {
+                          "productId": "11111111-1111-1111-1111-111111111111",
+                          "quantity": 3
+                        },
+                        {
+                          "productId": "22222222-2222-2222-2222-222222222222",
+                          "quantity": 2
+                        }
+                      ]
+                    }
+                  },
+                  "Rejected": {
+                    "summary": "Original request and persisted shortage",
+                    "value": {
+                      "reservationId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+                      "status": "Rejected",
+                      "failureCode": "INSUFFICIENT_STOCK",
+                      "shortfalls": [
+                        {
+                          "productId": "22222222-2222-2222-2222-222222222222",
+                          "requested": 2,
+                          "available": 1
+                        }
+                      ],
+                      "items": [
+                        {
+                          "productId": "11111111-1111-1111-1111-111111111111",
+                          "quantity": 3
+                        },
+                        {
+                          "productId": "22222222-2222-2222-2222-222222222222",
+                          "quantity": 2
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Reservation ID must not be empty.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "RESERVATION_NOT_FOUND with reservationId: no stored outcome exists for that ID.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unexpected server/database failure. ProblemDetails contains an errorCode and traceId; internal exception details are not exposed.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "CreateReservationRequest": {
+        "required": [
+          "items",
+          "reservationId"
+        ],
+        "type": "object",
+        "properties": {
+          "reservationId": {
+            "type": "string",
+            "description": "Stable, nonempty request ID supplied by the caller. OrderService uses the order ID. Preserve it on retries.",
+            "format": "uuid"
+          },
+          "items": {
+            "maxItems": 50,
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReservationItemRequest"
+            },
+            "description": "1–50 non-null lines with distinct, nonempty product IDs. Each line quantity must be 1–10,000. Item order does not affect the request fingerprint."
+          }
+        },
+        "additionalProperties": false,
+        "example": {
+          "reservationId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+          "items": [
+            {
+              "productId": "11111111-1111-1111-1111-111111111111",
+              "quantity": 3
+            },
+            {
+              "productId": "22222222-2222-2222-2222-222222222222",
+              "quantity": 2
+            }
+          ]
+        }
+      },
+      "InventoryResponse": {
+        "type": "object",
+        "properties": {
+          "productId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "onHand": {
+            "type": "integer",
+            "description": "Total physical count, not a quantity to add. Must be nonnegative and at least Reserved.",
+            "format": "int32"
+          },
+          "reserved": {
+            "type": "integer",
+            "description": "Quantity held for confirmed orders or direct reservations; not a shipment count.",
+            "format": "int32"
+          },
+          "availableQuantity": {
+            "type": "integer",
+            "description": "Current OnHand minus Reserved.",
+            "format": "int32"
+          },
+          "version": {
+            "type": "string",
+            "description": "Opaque 8-byte SQL rowversion encoded as Base64. Changes on stock updates, including receipts, reservations and releases. This is not a timestamp.",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false,
+        "example": {
+          "productId": "11111111-1111-1111-1111-111111111111",
+          "onHand": 10,
+          "reserved": 3,
+          "availableQuantity": 7,
+          "version": "AAAAAAAAAAE="
+        }
+      },
+      "ProblemDetails": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "nullable": true
+          },
+          "title": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "detail": {
+            "type": "string",
+            "nullable": true
+          },
+          "instance": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": { }
+      },
+      "ReceiveStockRequest": {
+        "required": [
+          "operationId",
+          "quantity",
+          "reason"
+        ],
+        "type": "object",
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "description": "ID of the operation. Receipt IDs come from the caller; stocktake IDs are system-generated. Reserve and Release share the order/reservation ID; MovementType separates them. A ledger row's id is a separate audit identifier.",
+            "format": "uuid"
+          },
+          "quantity": {
+            "maximum": 2147483647,
+            "minimum": 1,
+            "type": "integer",
+            "description": "Additional units received, from 1 to 2147483647, subject to the physical stock integer limit.",
+            "format": "int32"
+          },
+          "reason": {
+            "minLength": 1,
+            "type": "string",
+            "description": "Stocktake/receipt reason is trimmed and at most 300 characters. Release ledger reasons retain the accepted cancellation text, up to 500 characters."
+          }
+        },
+        "additionalProperties": false,
+        "example": {
+          "operationId": "cccccccc-cccc-cccc-cccc-cccccccccccc",
+          "quantity": 5,
+          "reason": "Supplier delivery"
+        }
+      },
+      "ReleaseReservationRequest": {
+        "required": [
+          "reason"
+        ],
+        "type": "object",
+        "properties": {
+          "reason": {
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string",
+            "description": "Required, nonblank reason of at most 500 characters. First accepted cancellation reason is immutable; replay text is ignored."
+          }
+        },
+        "additionalProperties": false,
+        "example": {
+          "reason": "Customer cancelled before shipment"
+        }
+      },
+      "ReservationDetailsResponse": {
+        "type": "object",
+        "properties": {
+          "reservationId": {
+            "type": "string",
+            "description": "Stable, nonempty request ID supplied by the caller. OrderService uses the order ID. Preserve it on retries.",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "nullable": true
+          },
+          "failureCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "shortfalls": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StockShortfall"
+            },
+            "description": "Original insufficient-stock details. Rejected replay does not recalculate availability after restock.",
+            "nullable": true
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReservationItemResponse"
+            },
+            "description": "Original persisted request lines, sorted by product ID, including rejected requests. Quantities remain unchanged after release or consumption and do not describe current stock balances.",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false,
+        "example": {
+          "reservationId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+          "status": "Reserved",
+          "failureCode": null,
+          "shortfalls": [ ],
+          "items": [
+            {
+              "productId": "11111111-1111-1111-1111-111111111111",
+              "quantity": 3
+            },
+            {
+              "productId": "22222222-2222-2222-2222-222222222222",
+              "quantity": 2
+            }
+          ]
+        }
+      },
+      "ReservationItemRequest": {
+        "type": "object",
+        "properties": {
+          "productId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "quantity": {
+            "maximum": 10000,
+            "minimum": 1,
+            "type": "integer",
+            "description": "Whole units requested, from 1 to 10,000.",
+            "format": "int32"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ReservationItemResponse": {
+        "type": "object",
+        "properties": {
+          "productId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "quantity": {
+            "type": "integer",
+            "description": "Whole units requested, from 1 to 10,000.",
+            "format": "int32"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ReservationResponse": {
+        "type": "object",
+        "properties": {
+          "reservationId": {
+            "type": "string",
+            "description": "Stable, nonempty request ID supplied by the caller. OrderService uses the order ID. Preserve it on retries.",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "nullable": true
+          },
+          "failureCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "shortfalls": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StockShortfall"
+            },
+            "description": "Original insufficient-stock details. Rejected replay does not recalculate availability after restock.",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false,
+        "example": {
+          "reservationId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+          "status": "Reserved",
+          "failureCode": null,
+          "shortfalls": [ ]
+        }
+      },
+      "SetStockRequest": {
+        "required": [
+          "onHand",
+          "reason"
+        ],
+        "type": "object",
+        "properties": {
+          "onHand": {
+            "maximum": 2147483647,
+            "minimum": 0,
+            "type": "integer",
+            "description": "Total physical count, not a quantity to add. Must be nonnegative and at least Reserved.",
+            "format": "int32"
+          },
+          "reason": {
+            "minLength": 1,
+            "type": "string",
+            "description": "Stocktake/receipt reason is trimmed and at most 300 characters. Release ledger reasons retain the accepted cancellation text, up to 500 characters."
+          },
+          "expectedVersion": {
+            "type": "string",
+            "description": "Copy version from GET inventory for an existing stock count. Missing or stale versions return 409 STOCK_VERSION_CONFLICT. Null or omitted means initialise only; malformed tokens return 400. Refresh and review the count after a conflict, without automatic resubmission.",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false,
+        "example": {
+          "onHand": 10,
+          "reason": "Physical count",
+          "expectedVersion": "AAAAAAAAAAE="
+        }
+      },
+      "StockMovementResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "operationId": {
+            "type": "string",
+            "description": "ID of the operation. Receipt IDs come from the caller; stocktake IDs are system-generated. Reserve and Release share the order/reservation ID; MovementType separates them. A ledger row's id is a separate audit identifier.",
+            "format": "uuid"
+          },
+          "productId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "movementType": {
+            "type": "string",
+            "nullable": true
+          },
+          "onHandDelta": {
+            "type": "integer",
+            "description": "Signed change to physical stock made by this movement. Reserve movements use 0.",
+            "format": "int32"
+          },
+          "reservedDelta": {
+            "type": "integer",
+            "description": "Signed change to held stock. Reserve adds the requested quantity; Release subtracts the original persisted quantity.",
+            "format": "int32"
+          },
+          "onHandAfter": {
+            "type": "integer",
+            "description": "Physical stock immediately after this operation; later operations can change the current balance.",
+            "format": "int32"
+          },
+          "reservedAfter": {
+            "type": "integer",
+            "description": "Reserved stock immediately after this operation.",
+            "format": "int32"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Stocktake/receipt reason is trimmed and at most 300 characters. Release ledger reasons retain the accepted cancellation text, up to 500 characters.",
+            "nullable": true
+          },
+          "createdAtUtc": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false,
+        "example": {
+          "id": 2,
+          "operationId": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+          "productId": "11111111-1111-1111-1111-111111111111",
+          "movementType": "Reserve",
+          "onHandDelta": 0,
+          "reservedDelta": 3,
+          "onHandAfter": 10,
+          "reservedAfter": 3,
+          "reason": null,
+          "createdAtUtc": "2026-10-22T00:00:00+00:00"
+        }
+      },
+      "StockReceiptResponse": {
+        "type": "object",
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "description": "ID of the operation. Receipt IDs come from the caller; stocktake IDs are system-generated. Reserve and Release share the order/reservation ID; MovementType separates them. A ledger row's id is a separate audit identifier.",
+            "format": "uuid"
+          },
+          "productId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "quantity": {
+            "type": "integer",
+            "description": "Additional units received, from 1 to 2147483647, subject to the physical stock integer limit.",
+            "format": "int32"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Stocktake/receipt reason is trimmed and at most 300 characters. Release ledger reasons retain the accepted cancellation text, up to 500 characters.",
+            "nullable": true
+          },
+          "onHandAfter": {
+            "type": "integer",
+            "description": "Physical stock immediately after this operation; later operations can change the current balance.",
+            "format": "int32"
+          },
+          "reservedAfter": {
+            "type": "integer",
+            "description": "Reserved stock immediately after this operation.",
+            "format": "int32"
+          },
+          "availableQuantityAfter": {
+            "type": "integer",
+            "description": "OnHandAfter minus ReservedAfter at the time of this receipt, including on replay.",
+            "format": "int32"
+          },
+          "createdAtUtc": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false,
+        "example": {
+          "operationId": "cccccccc-cccc-cccc-cccc-cccccccccccc",
+          "productId": "11111111-1111-1111-1111-111111111111",
+          "quantity": 5,
+          "reason": "Supplier delivery",
+          "onHandAfter": 15,
+          "reservedAfter": 3,
+          "availableQuantityAfter": 12,
+          "createdAtUtc": "2026-10-22T00:00:00+00:00"
+        }
+      },
+      "StockShortfall": {
+        "type": "object",
+        "properties": {
+          "productId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "requested": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "available": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ValidationProblemDetails": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "nullable": true
+          },
+          "title": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "detail": {
+            "type": "string",
+            "nullable": true
+          },
+          "instance": {
+            "type": "string",
+            "nullable": true
+          },
+          "errors": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": { }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "Inventory"
+    },
+    {
+      "name": "Reservations"
+    }
+  ]
+}

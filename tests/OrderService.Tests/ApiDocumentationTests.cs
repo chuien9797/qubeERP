@@ -14,6 +14,16 @@ public sealed class ApiDocumentationTests
         await using var factory = new OrderApiFactory(
             "Server=localhost;Database=Unused;Integrated Security=True;TrustServerCertificate=True", dependencies);
         var document = factory.Services.GetRequiredService<ISwaggerProvider>().GetSwagger("v1");
+        var bodyOperations = document.Paths.Values.SelectMany(path => path.Operations!.Values)
+            .Where(operation => operation.RequestBody is not null).ToArray();
+        Assert.Equal(2, bodyOperations.Length);
+        Assert.All(bodyOperations, operation => Assert.True(operation.RequestBody!.Required));
+        var reconcile = Assert.Single(document.Paths["/api/orders/{id}/reconcile-cancellation"].Operations!.Values);
+        Assert.Null(reconcile.RequestBody);
+        Assert.DoesNotContain("413", reconcile.Responses!.Keys);
+        Assert.DoesNotContain("415", reconcile.Responses.Keys);
+        foreach (var (schema, field) in new[] { ("OrderLineResponse", "unitPrice"), ("OrderLineResponse", "lineTotal"), ("OrderResponse", "totalAmount") })
+            Assert.Equal("decimal", document.Components!.Schemas![schema].Properties![field].Format);
         var operation = Assert.Single(document.Paths["/api/orders"].Operations!.Values, value => value.OperationId == "ListOrders");
         var parameter = Assert.Single(operation.Parameters!, value => value.Name == "status");
         Assert.False(parameter.Required);

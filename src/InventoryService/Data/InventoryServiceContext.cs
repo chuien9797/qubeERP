@@ -17,6 +17,7 @@ public sealed class InventoryServiceContext(DbContextOptions<InventoryServiceCon
             "CK_StockItems_Balances", "[OnHand] >= 0 AND [Reserved] >= 0 AND [Reserved] <= [OnHand]"));
         stock.HasKey(item => item.ProductId);
         stock.Property(item => item.ProductId).ValueGeneratedNever();
+        stock.Property(item => item.Version).IsRowVersion();
 
         var movement = modelBuilder.Entity<StockMovement>();
         movement.ToTable("StockMovements", table =>

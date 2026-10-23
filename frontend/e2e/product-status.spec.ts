@@ -131,6 +131,7 @@ test("activation controls preserve stock/history and verify the real catalogue a
       await request.put("/gateway/inventory/api/inventory/" + product.id, {
         data: {
           onHand: 0,
+          expectedVersion: (await readStock()).version,
           reason: "Verify zero stock does not deactivate catalogue",
         },
       })

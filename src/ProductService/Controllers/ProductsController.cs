@@ -54,7 +54,7 @@ public sealed class ProductsController(CatalogueService catalogue, ILogger<Produ
 
     [HttpGet("{id:guid}")]
     [EndpointSummary("View a product.")]
-    [EndpointDescription("Choose a product from the dropdown in Swagger. The response includes its generated ID, SKU, name, unit price and active status.")]
+    [EndpointDescription("Retrieve a product by its ID. The response includes its generated ID, SKU, name, unit price and active status.")]
     [ProducesResponseType<ProductResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ProductResponse>> Get(Guid id, CancellationToken cancellationToken)
@@ -65,7 +65,7 @@ public sealed class ProductsController(CatalogueService catalogue, ILogger<Produ
     }
 
     [HttpPost("lookup")]
-    [EndpointDescription("Select up to 50 different products in Swagger. The response contains product details and any IDs that were not found. OrderService uses this endpoint to load catalogue prices.")]
+    [EndpointDescription("Supply 1–50 distinct product IDs. The response contains product details and any IDs that were not found. OrderService uses this endpoint to load catalogue prices.")]
     [EndpointSummary("Look up selected products.")]
     [ProducesResponseType<ProductLookupResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]

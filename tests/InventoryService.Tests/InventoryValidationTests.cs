@@ -9,6 +9,9 @@ public sealed class InventoryValidationTests
 {
     public static IEnumerable<object[]> InvalidStockRequests()
     {
+        yield return ["""{"onHand":10,"reason":"Count","expectedVersion":""}"""];
+        yield return ["""{"onHand":10,"reason":"Count","expectedVersion":"not-base64!"}"""];
+        yield return ["""{"onHand":10,"reason":"Count","expectedVersion":"AAAA"}"""];
         yield return ["{}"];
         yield return ["null"];
         yield return ["{invalid"];

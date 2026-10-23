@@ -13,7 +13,7 @@ public sealed class StockReceiptsController(StockReceiptService receipts) : Cont
     [HttpPost]
     [Tags("Inventory")]
     [EndpointSummary("Add received stock to a product.")]
-    [EndpointDescription("Choose a product with initialised inventory and enter the additional quantity received. Existing stock is increased; Reserved stays unchanged. Swagger generates the operation ID. Keep that ID and the same quantity and reason when retrying; a successful receipt is applied once. Choose New receipt for a separate delivery. The response contains the original balances after this receipt, even on a later retry. Use PUT to initialise inventory or correct the total physical count.")]
+    [EndpointDescription("Supply the product ID of initialised inventory and the additional quantity received. Existing stock is increased; Reserved stays unchanged. Supply a unique operation ID. Keep that ID and the same quantity and reason when retrying; a successful receipt is applied once. Use a new operation ID for a separate delivery. The response contains the original balances after this receipt, even on a later retry. Use PUT to initialise inventory or correct the total physical count.")]
     [ProducesResponseType<StockReceiptResponse>(StatusCodes.Status201Created)]
     [ProducesResponseType<StockReceiptResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]

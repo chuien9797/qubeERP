@@ -135,7 +135,14 @@ export const guidPattern =
               <p class="muted">
                 Enter the total physical count, rather than a quantity to add.
               </p>
-              <button [disabled]="countForm.invalid || saving() || blocked()">
+              @if (countConflict()) {
+                <div class="notice" role="alert">
+                  Stock changed since this count was loaded. Reload inventory and
+                  review the physical count before saving again.
+                  <button class="secondary" type="button" (click)="load()">Reload inventory</button>
+                </div>
+              }
+              <button [disabled]="countForm.invalid || saving() || blocked() || countConflict()">
                 {{ saving() ? "Saving…" : "Save physical count" }}
               </button>
             </form>
@@ -205,6 +212,7 @@ export class Inventory {
   loading = signal(false);
   saving = signal(false);
   missing = signal(false);
+  countConflict = signal(false);
   generation = 0;
   lookup = this.fb.nonNullable.group({
     id: ["", [Validators.required, Validators.pattern(guidPattern)]],
@@ -278,9 +286,11 @@ export class Inventory {
     const [s, p] = results;
     if (s.status === "fulfilled") {
       this.stock.set(s.value);
+      this.countConflict.set(false);
       this.countForm.patchValue({ onHand: s.value.onHand });
     } else if ((s.reason as any).status === 404) {
       this.missing.set(true);
+      this.countConflict.set(false);
     } else {
       this.error.set(errorMessage(s.reason));
     }
@@ -304,7 +314,11 @@ export class Inventory {
   }
   async submit(kind: "receipt" | "stocktake") {
     const form = kind === "receipt" ? this.receiptForm : this.countForm;
-    if (form.invalid || this.saving() || this.blocked()) return;
+    if (form.invalid || this.saving() || this.blocked() || (kind === "stocktake" && this.countConflict())) return;
+    if (kind === "stocktake" && this.stock() && !this.stock()?.version) {
+      this.commandError.set("The stock version is unavailable. Reload inventory before saving a physical count.");
+      return;
+    }
     this.saving.set(true);
     this.commandError.set("");
     this.message.set("");
@@ -315,7 +329,7 @@ export class Inventory {
               ...this.receiptForm.getRawValue(),
               operationId: crypto.randomUUID(),
             }
-          : { ...this.countForm.getRawValue() };
+          : { ...this.countForm.getRawValue(), expectedVersion: this.stock()?.version ?? null };
       payload.reason = payload.reason.trim();
       const c = this.commands.prepare(kind, this.id(), payload);
       const r = await this.commands.run(c.id);
@@ -328,6 +342,8 @@ export class Inventory {
         form.controls.reason.reset("");
         await this.load();
       } else {
+        if (kind === "stocktake" && r?.problem?.errorCode === "STOCK_VERSION_CONFLICT")
+          this.countConflict.set(true);
         this.commandError.set(
           r?.message ||
             "Outcome unresolved. Inspect saved requests before sending another command.",

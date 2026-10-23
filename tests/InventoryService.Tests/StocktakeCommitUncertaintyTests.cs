@@ -35,7 +35,8 @@ public sealed class StocktakeCommitUncertaintyTests(InventoryApiFixture fixture)
             .AddInterceptors(interceptor).Options;
         var factory = new PooledDbContextFactory<InventoryServiceContext>(options);
         var service = new StockService(factory, new ExistingProduct(), options);
-        await Assert.ThrowsAsync<TimeoutException>(() => service.SetAsync(product, 20, "Physical count", CancellationToken.None));
+        var version = openingCount ? null : (await service.GetAsync(product, CancellationToken.None))!.Version;
+        await Assert.ThrowsAsync<TimeoutException>(() => service.SetAsync(product, 20, "Physical count", version, CancellationToken.None));
         Assert.Equal(1, interceptor.Commits);
         var balance = (await fixture.Client.GetFromJsonAsync<InventoryResponse>($"/api/inventory/{product}"))!;
         Assert.Equal(23, balance.OnHand);

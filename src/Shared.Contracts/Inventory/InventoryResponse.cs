@@ -1,6 +1,6 @@
 namespace Shared.Contracts.Inventory;
 
-public sealed record InventoryResponse(Guid ProductId, int OnHand, int Reserved, int AvailableQuantity);
+public sealed record InventoryResponse(Guid ProductId, int OnHand, int Reserved, int AvailableQuantity, string Version = "");
 
 public sealed record StockMovementResponse(
     long Id,

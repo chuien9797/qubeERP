@@ -198,6 +198,8 @@
                         h(Field, { label: "Reason", value: body.reason, required: true, maxLength: 300, placeholder: "Supplier delivery reference", onChange: reason => update({ reason }) }),
                         help("Adds this quantity to existing physical stock. Reserved is unchanged. Initialise inventory with Set physical stock count first. Replays return the original receipt balances; GET inventory shows the current balance.")) : null,
                     kind === "stock" ? h(React.Fragment, null,
+                        h(Field, { label: "Expected stock version", value: body.expectedVersion || "", maxLength: 12, placeholder: "Version from GET inventory", onChange: expectedVersion => update({ expectedVersion: expectedVersion || null }) }),
+                        help("Copy version from GET inventory before editing existing stock. Leave blank only for an opening count. After 409, refresh the balance and review your count before a new submission."),
                         h(Field, { label: "Physical stock count", type: "number", min: 0, max: 2147483647, step: 1, required: true, value: body.onHand, onChange: count => update({ onHand: count === "" ? null : Number(count) }) }),
                         h(Field, { label: "Reason", value: body.reason, required: true, maxLength: 300, placeholder: "Stock count or replenishment", onChange: reason => update({ reason }) }),
                         help("This sets the total physical quantity; it does not add to the previous count. It cannot be lower than reserved stock.")) : null,

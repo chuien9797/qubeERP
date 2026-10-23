@@ -13,7 +13,7 @@ public sealed class OrdersController(OrderApplicationService orders) : Controlle
 {
     [HttpPost]
     [EndpointSummary("Create an order for selected products.")]
-    [EndpointDescription("Choose 1–50 distinct active products with quantities of 1–10,000 in Swagger. A request key is generated automatically; keep it to retry the same order or recover a Pending result. Choose New order for a separate purchase. OrderService generates the order ID and saves catalogue names, SKUs and prices. Confirmation reserves stock without reducing physical OnHand. A shortage rejects the whole order. A 202 response means the outcome is uncertain; retry the same key and items.")]
+    [EndpointDescription("Supply 1–50 distinct active products with quantities of 1–10,000 and an Idempotency-Key header. Preserve the key and items to retry the same order or recover Pending. Use a new key for a separate purchase. OrderService generates the order ID and saves catalogue names, SKUs and prices. Confirmation reserves stock without reducing physical OnHand. A shortage rejects the whole order. A 202 response means the outcome is uncertain; retry the same key and items.")]
     [ProducesResponseType<OrderResponse>(201)]
     [ProducesResponseType<OrderResponse>(200)]
     [ProducesResponseType<PendingOrderResponse>(202)]
@@ -117,7 +117,7 @@ public sealed class OrdersController(OrderApplicationService orders) : Controlle
 
     [HttpGet("{id:guid}")]
     [EndpointSummary("View an order and its saved prices.")]
-    [EndpointDescription("Choose an order returned by this Swagger page or enter a known order ID. Reading an order does not retry reservations or change its status. To recover a Pending order, repeat its original POST with the same request key and items.")]
+    [EndpointDescription("Retrieve a stored order by ID. Reading an order does not retry reservations or change its status. To recover a Pending order, repeat its original POST with the same request key and items.")]
     [ProducesResponseType<OrderResponse>(200)]
     [ProducesResponseType<ProblemDetails>(404)]
     public async Task<ActionResult<OrderResponse>> Get(Guid id, CancellationToken cancellationToken)

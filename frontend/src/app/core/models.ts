@@ -9,6 +9,7 @@ export interface Product {
   updatedAtUtc: string;
 }
 export interface Stock {
+  version: string;
   productId: string;
   onHand: number;
   reserved: number;
