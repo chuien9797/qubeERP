@@ -7,7 +7,7 @@ namespace InventoryService.Tests;
 public sealed class ApiDocumentationTests
 {
     [Fact]
-    public async Task ReservationGetDocumentsHistoricalItemsAndMalaysiaResponseTime()
+    public async Task ReservationGetDocumentsHistoricalItems()
     {
         using var products = new ProductStub();
         await using var factory = new InventoryApiFactory(
@@ -21,7 +21,7 @@ public sealed class ApiDocumentationTests
         var item = document.Components.Schemas["ReservationItemResponse"];
         Assert.Equal(new[] { "productId", "quantity" }, item.Properties!.Keys.OrderBy(name => name));
         Assert.Contains("historical", operation.Responses!["200"].Description!, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("X-Malaysia-Time", operation.Responses["200"].Headers!.Keys);
+        Assert.False(operation.Responses["200"].Headers?.ContainsKey("X-Malaysia-Time") == true);
         var examples = operation.Responses["200"].Content!["application/json"].Examples!;
         Assert.Equal(new[] { "Consumed", "Rejected", "Released", "Reserved" }, examples.Keys.OrderBy(name => name));
         foreach (var (status, example) in examples)

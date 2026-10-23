@@ -28,8 +28,7 @@ import { Recovery } from "../shared/recovery";
       <div class="banner-label">QUBEERP WORKSPACE</div>
       <h2>Stock under control.<br />Every movement accounted for.</h2>
       <p>
-        Manage products, verify reservations and follow each order through its
-        backend outcome.
+        Manage products, reservations and orders in one place.
       </p>
       <div class="button-row">
         <a class="button" routerLink="/orders">Open orders →</a
@@ -47,8 +46,7 @@ import { Recovery } from "../shared/recovery";
       <div>
         <h2>Recent order snapshot</h2>
         <p>
-          Based on the latest {{ orders().length }} orders returned by the
-          backend. These are not all-time totals.
+          Latest {{ orders().length }} orders.
         </p>
       </div>
       <a routerLink="/orders">Browse orders ↗</a>
@@ -66,7 +64,7 @@ import { Recovery } from "../shared/recovery";
         <article class="metric">
           <span>Confirmed in this window</span
           ><strong>{{ count("Confirmed") }}</strong
-          ><small>Backend-confirmed reservations</small>
+          ><small>Stock reserved</small>
         </article>
         <article class="metric accent">
           <span>Needs attention in this window</span
@@ -78,7 +76,7 @@ import { Recovery } from "../shared/recovery";
         <div class="panel-heading">
           <div>
             <h2>Recent activity</h2>
-            <p>Newest orders first · Malaysia time</p>
+            <p>Newest orders first</p>
           </div>
           <a routerLink="/orders">View all orders →</a>
         </div>

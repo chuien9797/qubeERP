@@ -22,7 +22,7 @@ import { Recovery } from "../shared/recovery";
   template: ` <app-page
     section="ORDER WORKSPACE"
     title="Order details"
-    subtitle="Review the durable backend state before taking any action."
+    subtitle="View order items, status and cancellation details."
     ><div actions class="button-row">
       <a class="button secondary" routerLink="/orders">← All orders</a
       ><button class="secondary" [disabled]="loading()" (click)="load()">
@@ -115,7 +115,7 @@ import { Recovery } from "../shared/recovery";
                 <tr>
                   <th>Product</th>
                   <th class="numeric">Requested</th>
-                  <th class="numeric">Available at evaluation</th>
+                  <th class="numeric">Available then</th>
                 </tr>
               </thead>
               <tbody>
@@ -148,8 +148,7 @@ import { Recovery } from "../shared/recovery";
       }
       @if (o.status === "CancellationPending") {
         <div class="notice">
-          Cancellation remains pending. The backend must verify stock release
-          before this order can be reported as Cancelled.
+          Cancellation is pending. Check again to update its status.
         </div>
         <button [disabled]="saving()" (click)="reconcile()">
           Reconcile cancellation
@@ -166,7 +165,6 @@ import { Recovery } from "../shared/recovery";
           <div class="panel-heading">
             <div>
               <h2>Cancel order</h2>
-              <p>The backend coordinates and verifies stock release.</p>
             </div>
           </div>
           <form class="form-body" [formGroup]="form" (ngSubmit)="cancel()">
@@ -188,10 +186,6 @@ import { Recovery } from "../shared/recovery";
           </form>
         </section>
       }
-      <p class="muted">
-        Fulfilment is not implemented by the current backend. No fulfilment
-        command is available.
-      </p>
     }
     <app-error [message]="commandError()" /><app-recovery kind="order,cancel"
   /></app-page>`,

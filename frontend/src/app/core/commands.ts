@@ -125,7 +125,7 @@ export class Commands {
       );
     this.update(id, {
       state: "uncertain",
-      message: "Request submitted; awaiting backend verification.",
+      message: "Request submitted. Awaiting confirmation.",
     });
     this.busy.update((v) => [...v, id]);
     try {
@@ -175,9 +175,9 @@ export class Commands {
         response: body,
         problem: undefined,
         message: verified
-          ? "Backend outcome verified."
+          ? "Request completed."
           : response.status === 202
-            ? "The backend outcome is pending. Keep this request and retry or reconcile."
+            ? "Request pending. Keep this request to check again."
             : "The response needs investigation; completion has not been verified.",
       });
     } catch (error) {
@@ -219,8 +219,6 @@ export class Commands {
               : c.state,
         });
       } catch {
-        // A local cache failure must not hide a successful read of backend state.
-        // persist exposes the storage error; command submission remains blocked.
         break;
       }
     }
@@ -242,7 +240,7 @@ export class Commands {
           state: "verified",
           status: reservation.status,
           response: reservation,
-          message: "Reservation outcome verified by the backend.",
+          message: "Reservation status updated.",
         });
       } catch {
         break;
@@ -252,7 +250,6 @@ export class Commands {
   recordInventoryCheck(id: string, checked: boolean) {
     const c = this.get(id);
     if (!c || c.kind !== "stocktake" || c.state !== "uncertain") return;
-    // This records a reversible local review, not a verified backend outcome.
     this.update(id, {
       inventoryCheckedAt: checked ? new Date().toISOString() : undefined,
     });

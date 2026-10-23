@@ -71,7 +71,7 @@ public sealed class InventoryController(StockService stock, ILogger<InventoryCon
 
     [HttpGet("{productId:guid}/movements")]
     [EndpointSummary("View a product's stock movements.")]
-    [EndpointDescription("Choose a product to see opening stock, stocktake corrections, receipts and reservations, oldest first by movement ID. Reservations increase Reserved and leave physical OnHand unchanged. Movement IDs identify audit rows, not orders. A Reserve movement uses the order/reservation ID as operationId. Use offset and limit to page through the results.")]
+    [EndpointDescription("Choose a product to see opening stock, stocktake corrections, receipts, reservations and releases, oldest first by movement ID. Reservations increase Reserved; releases decrease Reserved. Both leave physical OnHand unchanged. Movement IDs identify audit rows, not orders. Reserve and Release use the original order/reservation ID as operationId. The After fields are historical balances immediately after that operation. This endpoint is read-only. Use offset and limit to page through the results.")]
     [ProducesResponseType<IReadOnlyList<StockMovementResponse>>(StatusCodes.Status200OK)]
     [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]

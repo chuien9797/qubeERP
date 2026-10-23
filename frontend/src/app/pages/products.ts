@@ -72,15 +72,20 @@ import { ProductStatus } from "../core/product-status";
               </thead>
               <tbody>
                 @for (p of rows(); track p.id) {
-                  <tr>
+                  <tr class="navigable-row">
                     <td>
-                      <strong>{{ p.name }}</strong
-                      ><small class="mono">{{ p.sku }}</small>
+                      <a class="row-link product-reference" routerLink="/inventory"
+                        [queryParams]="{ productId: p.id }"
+                        [attr.aria-label]="'View inventory for ' + p.name">
+                        <strong>{{ p.name }}</strong></a>
+                      <small class="mono">{{ p.sku }}</small>
                     </td>
                     <td>
                       <app-badge [value]="p.isActive ? 'Active' : 'Inactive'" />
                       <button
                         class="text-button product-status-action"
+                        [class.is-active]="p.isActive"
+                        [class.is-inactive]="!p.isActive"
                         [disabled]="statusBusy().includes(p.id)"
                         [attr.aria-label]="
                           (p.isActive ? 'Deactivate ' : 'Reactivate ') + p.sku
@@ -112,6 +117,7 @@ import { ProductStatus } from "../core/product-status";
                     }
                     <td>
                       <a
+                        class="row-action"
                         routerLink="/inventory"
                         [queryParams]="{ productId: p.id }"
                         >View stock ↗</a
@@ -135,7 +141,7 @@ import { ProductStatus } from "../core/product-status";
                 ? "Showing " + (offset + 1) + "–" + (offset + rows().length)
                 : "No rows"
             }}
-            · Active is a catalogue status, separate from available stock.</span
+            </span
           >
           <div>
             <button
@@ -235,7 +241,7 @@ export class Products {
     const action = desired ? "Reactivate" : "Deactivate";
     if (
       !window.confirm(
-        `${action} ${product.sku} — ${product.name}? ${desired ? "This makes the product eligible for new order validation again." : "New orders that read its inactive status will be rejected. Already validated or Pending orders may still complete."} Existing stock, reservations, orders and history stay unchanged. Concurrent status commands use last committed write wins.`,
+        `${action} ${product.sku} — ${product.name}? Existing orders and stock will be kept.`,
       )
     )
       return;

@@ -169,7 +169,7 @@ test("catalogue, counts, receipts, multi-item order, cancellation and historical
     .fill("Frontend assessment delivery");
   await page.getByRole("button", { name: "Record receipt" }).click();
   await expect(
-    page.getByRole("status").filter({ hasText: "Receipt verified" }),
+    page.getByRole("status").filter({ hasText: "Stock receipt saved" }),
   ).toBeVisible();
   const second = await request.post("/gateway/products/api/products", {
     data: {

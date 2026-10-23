@@ -106,6 +106,8 @@ public sealed class ProductStatusDocumentationTests
         Assert.Contains("204", operation.Responses!.Keys);
         Assert.Contains("400", operation.Responses.Keys);
         Assert.Contains("404", operation.Responses.Keys);
+        Assert.Contains("413", operation.Responses.Keys);
+        Assert.Contains("415", operation.Responses.Keys);
         Assert.Contains("last committed write wins", operation.Description!);
         Assert.Contains("Pending", operation.Description!);
         var schema = document.Components!.Schemas!["UpdateProductStatusRequest"];

@@ -12,8 +12,7 @@ namespace InventoryService.Application;
 public sealed class StockService(IDbContextFactory<InventoryServiceContext> contextFactory, IProductClient products,
     DbContextOptions<InventoryServiceContext> options)
 {
-    // An absolute count has no replay identity. A lost commit acknowledgement must not
-    // reapply an old count over receipts/reservations committed after the first attempt.
+    // Physical counts use a non-retrying write context.
     private readonly DbContextOptions<InventoryServiceContext> writeOptions = new DbContextOptionsBuilder<InventoryServiceContext>(options)
         .UseSqlServer(sql => sql.ExecutionStrategy(dependencies => new NonRetryingExecutionStrategy(dependencies))).Options;
     public async Task<InventoryResponse?> GetAsync(Guid productId, CancellationToken cancellationToken)

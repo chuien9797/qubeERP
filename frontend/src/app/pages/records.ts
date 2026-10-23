@@ -53,8 +53,7 @@ import { Recovery } from "../shared/recovery";
             <app-badge [value]="r.status" />
           </div>
           <div class="notice inset">
-            Original requested quantities are historical. Released or consumed
-            quantities do not represent current reserved stock.
+            Original quantities requested for this reservation.
           </div>
           @if (r.failureCode) {
             <div class="notice danger inset">
@@ -89,13 +88,13 @@ import { Recovery } from "../shared/recovery";
           </div>
           @if (!r.items.length) {
             <p class="padded muted">
-              No original lines were returned by the backend.
+              No reservation items found.
             </p>
           }
           @if (r.shortfalls.length) {
             <div class="panel-heading">
               <h2>Recorded shortages</h2>
-              <span class="muted">At reservation evaluation</span>
+
             </div>
             <div class="table-wrap">
               <table>

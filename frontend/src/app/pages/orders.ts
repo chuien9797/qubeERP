@@ -25,7 +25,7 @@ import { Recovery } from "../shared/recovery";
   template: ` <app-page
       section="SALES OPERATIONS"
       title="Orders"
-      subtitle="Create multi-product orders and track backend-verified outcomes."
+      subtitle="Create orders and track their progress."
       ><button actions (click)="startDraft()">＋ Create order</button>
       <section class="panel">
         <div class="list-controls">
@@ -75,10 +75,10 @@ import { Recovery } from "../shared/recovery";
               </thead>
               <tbody>
                 @for (o of rows(); track o.orderId) {
-                  <tr>
+                  <tr class="navigable-row">
                     <td>
                       <a
-                        class="order-reference"
+                        class="order-reference row-link"
                         [title]="o.orderId"
                         [routerLink]="['/orders', o.orderId]"
                         >{{ o.orderId.slice(0, 8) }}…</a
@@ -96,7 +96,7 @@ import { Recovery } from "../shared/recovery";
                     <td><app-badge [value]="o.status" /></td>
                     <td>
                       <a
-                        class="order-action"
+                        class="order-action row-action"
                         [routerLink]="['/orders', o.orderId]"
                         >Details →</a
                       >
@@ -109,7 +109,7 @@ import { Recovery } from "../shared/recovery";
         } @else if (!error()) {
           <app-empty
             title="No matching orders"
-            text="Orders will appear here once submitted to the backend."
+            text="Submitted orders will appear here."
           />
         }
         <div class="pagination">
@@ -146,10 +146,6 @@ import { Recovery } from "../shared/recovery";
           <div class="panel-heading">
             <div>
               <h2 id="order-create-title">Create order</h2>
-              <p>
-                Backend product prices and reservation results are
-                authoritative.
-              </p>
             </div>
             <button
               class="icon-button"

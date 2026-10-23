@@ -53,7 +53,7 @@ public sealed class CatalogueService(ProductServiceContext database)
 
     public async Task<bool> SetStatusAsync(Guid id, bool isActive, CancellationToken cancellationToken)
     {
-        // Atomic partial write; same-value requests do not change UpdatedAtUtc.
+        // Update only the status and timestamp.
         var changed = await database.Products.Where(product => product.Id == id && product.IsActive != isActive)
             .ExecuteUpdateAsync(update => update.SetProperty(product => product.IsActive, isActive)
                 .SetProperty(product => product.UpdatedAtUtc, _ => DateTimeOffset.UtcNow), cancellationToken);

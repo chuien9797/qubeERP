@@ -13,9 +13,7 @@ public static class ApiDocumentationConfiguration
         {
             Title = $"QubeErp {service} API",
             Version = "v1",
-            Description = description + " Local assessment API. Swagger helpers run only in Development. "
-                + "Example GUIDs illustrate request shapes; choose existing products or use IDs returned by this API. "
-                + "X-Malaysia-Time exposes response time at UTC+08:00. The HTTP Date header remains GMT and stored AtUtc fields remain UTC."
+            Description = description + " Example GUIDs illustrate request shapes; use IDs returned by your API."
         });
         options.OperationFilter<ApiOperationDocumentation>();
         options.SchemaFilter<ApiSchemaDocumentation>();
@@ -80,7 +78,7 @@ public sealed class ApiOperationDocumentation : IOperationFilter
         ["ReservationsController.Create"] = new("ReserveStock", new()
         {
             ["201"] = "All items reserved atomically; one Reserve movement per item. Location identifies the reservation.",
-            ["200"] = "Successful reservation replayed with no additional hold or movements.",
+            ["200"] = "Successful original reservation replayed with no additional hold or movements. Its current status may be Reserved, Released or Consumed; a terminal replay never reserves again.",
             ["409"] = "INSUFFICIENT_STOCK with reservationId and original shortfalls, or RESERVATION_PAYLOAD_CONFLICT for changed items. A shortage is durable and reserves nothing; replay stays rejected after restock.",
             ["503"] = "RESERVATION_UNAVAILABLE: reservation could not complete after bounded SQL deadlock retries, or its winning record could not be loaded. Keep the same ID when retrying."
         }),
@@ -118,7 +116,7 @@ public sealed class ApiOperationDocumentation : IOperationFilter
         {
             ["201"] = "New order Confirmed with saved product/price snapshots. Stock is reserved, not shipped. Location identifies the order.",
             ["200"] = "Existing order is Confirmed, Cancelled or Fulfilled, including a successful Pending recovery. Returns saved snapshots without another logical stock hold.",
-            ["202"] = "Pending: Inventory's outcome is uncertain, including an Inventory HTTP 408. Response contains orderId, status and statusUrl; Location identifies the order. Repeat the same POST key/items to recover; GET alone does not recover. Recovery verifies original product IDs and quantities from the saved reservation; mismatched or missing lines require review.",
+            ["202"] = "Pending: Inventory's outcome is uncertain, including an Inventory HTTP 408. Response contains orderId, status and statusUrl; Location identifies the order. Repeat the same POST key/items to recover; GET alone does not recover. Recovery verifies original product IDs and quantities from the saved reservation; mismatched or missing lines require review. Replaying a key while its order is CancellationPending returns that state; use cancel or reconcile-cancellation to recover cancellation.",
             ["409"] = "INSUFFICIENT_STOCK with orderId, orderStatus, statusUrl and original shortfalls, or IDEMPOTENCY_KEY_CONFLICT for a changed payload. Numeric status is the HTTP code. No additional stock hold.",
             ["422"] = "INVALID_PRODUCT with invalidProductIds for missing/inactive products, or ORDER_TOTAL_OUT_OF_RANGE. No new order or reservation created.",
             ["502"] = "Inventory contract failure: stored Rejected/INVENTORY_INVALID_REQUEST or RequiresReview/RESERVATION_PAYLOAD_CONFLICT/INVENTORY_UNEXPECTED_RESPONSE. Inspect orderId/statusUrl; do not treat as confirmed.",
@@ -126,7 +124,7 @@ public sealed class ApiOperationDocumentation : IOperationFilter
         }),
         ["OrdersController.Get"] = new("GetOrder", new()
         {
-            ["200"] = "Stored order, snapshots and cancellationReason in any persisted state: Pending, Confirmed, Rejected, CancellationPending, Cancelled, RequiresReview or Fulfilled. Fulfilment is not implemented. This read has no recovery side effects.",
+            ["200"] = "Stored order, item snapshots and cancellationReason. This read has no recovery side effects.",
             ["404"] = "ORDER_NOT_FOUND: no order has this ID."
         })
     };
@@ -158,6 +156,16 @@ public sealed class ApiOperationDocumentation : IOperationFilter
             foreach (var media in conflictResponse.Content.Values)
                 media.Example = JsonNode.Parse(conflictExample);
 
+        if (key == "OrdersController.Create")
+        {
+            SetResponseExample(operation, "201", JsonNode.Parse(ApiSchemaDocumentation.OrderResponseExample)!);
+            SetResponseExample(operation, "200", JsonNode.Parse(ApiSchemaDocumentation.OrderResponseExample)!);
+            SetResponseExample(operation, "202", JsonNode.Parse("""{"orderId":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb","status":"Pending","statusUrl":"/api/orders/bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"}""")!);
+            SetResponseExample(operation, "422", JsonNode.Parse("""{"title":"Some products are missing or inactive.","status":422,"errorCode":"INVALID_PRODUCT","invalidProductIds":["11111111-1111-1111-1111-111111111111"]}""")!);
+            SetResponseExample(operation, "502", JsonNode.Parse("""{"title":"The Inventory response needs investigation.","status":502,"errorCode":"INVENTORY_UNEXPECTED_RESPONSE","orderId":"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb","orderStatus":"RequiresReview","statusUrl":"/api/orders/bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"}""")!);
+            SetResponseExample(operation, "503", JsonNode.Parse("""{"title":"Product lookup is unavailable.","status":503,"errorCode":"PRODUCT_UNAVAILABLE"}""")!);
+        }
+
         if (key == "ReservationsController.Get" && operation.Responses.TryGetValue("200", out var details)
             && details is OpenApiResponse { Content: not null } detailsResponse)
         {
@@ -172,7 +180,7 @@ public sealed class ApiOperationDocumentation : IOperationFilter
                         Summary = state == "Rejected" ? "Original request and persisted shortage"
                             : state == "Reserved" ? "Original items held by the reservation"
                             : state == "Released" ? "Original items after release; quantities remain historical"
-                            : "Original items in a recognized Consumed state; fulfilment is outside scope",
+                            : "Original items after consumption",
                         Value = ApiSchemaDocumentation.ReservationExample(state)
                     };
                 }
@@ -192,7 +200,7 @@ public sealed class ApiOperationDocumentation : IOperationFilter
             validation.Description = "Invalid input, including empty IDs, invalid quantities, duplicate items or pagination bounds where applicable. Validation problems include errors and traceId; errorCode identifies the failure.";
 
         AddProblemResponse(operation, context, "500", "Unexpected server/database failure. ProblemDetails contains an errorCode and traceId; internal exception details are not exposed.");
-        if (context.ApiDescription.HttpMethod is "POST" or "PUT")
+        if (context.ApiDescription.HttpMethod is "POST" or "PUT" or "PATCH")
         {
             AddProblemResponse(operation, context, "413", "REQUEST_TOO_LARGE: request body exceeds the 65,536-byte limit.");
             AddProblemResponse(operation, context, "415", "UNSUPPORTED_MEDIA_TYPE: send a JSON body with Content-Type: application/json.");
@@ -201,13 +209,6 @@ public sealed class ApiOperationDocumentation : IOperationFilter
         foreach (var (status, value) in operation.Responses)
         {
             if (value is not OpenApiResponse response) continue;
-            response.Headers ??= new Dictionary<string, IOpenApiHeader>();
-            response.Headers[ApiResponseTime.MalaysiaTimeHeader] = new OpenApiHeader
-            {
-                Description = "Response time in Malaysia (UTC+08:00), in ISO 8601 format. The standard HTTP Date header remains GMT; stored *AtUtc timestamps remain UTC.",
-                Schema = new OpenApiSchema { Type = JsonSchemaType.String, Format = "date-time",
-                    Example = JsonValue.Create("2026-10-22T21:28:35+08:00") }
-            };
             if (response.Content is not { Count: > 0 }) continue;
             var media = response.Content.TryGetValue("application/json", out var json) ? json : response.Content.Values.First();
             var mediaType = int.TryParse(status, out var code) && code >= 400 ? "application/problem+json" : "application/json";
@@ -333,6 +334,7 @@ public sealed class ApiSchemaDocumentation : ISchemaFilter
                 "sku" => "Catalogue SKU is trimmed, uppercased and unique; at most 50 characters after normalisation. Order lines retain the saved SKU.",
                 "name" => "Catalogue name is trimmed and at most 200 characters. Order lines retain the saved name.",
                 "unitPrice" => "Nonnegative decimal with at most two fractional digits, up to 9999999999999999.99. Order lines retain the saved catalogue price.",
+                "isActive" => "Catalogue activation, independent of stock availability. Status updates require an explicit boolean; zero stock never changes it. Deactivation does not fence orders already validated across services.",
                 _ => property.Description
             };
             if (name == "quantity")

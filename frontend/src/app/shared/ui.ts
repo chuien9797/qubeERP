@@ -9,6 +9,8 @@ import { CommonModule } from "@angular/common";
     [class.good]="good.includes(value())"
     [class.bad]="bad.includes(value())"
     [class.wait]="wait.includes(value())"
+    [class.catalogue-active]="value() === 'Active'"
+    [class.catalogue-inactive]="value() === 'Inactive'"
     >{{ label() || value() }}</span
   >`,
 })
@@ -30,7 +32,7 @@ export class Badge {
 })
 export class Empty {
   title = input("Nothing here yet");
-  text = input("Records returned by the backend will appear here.");
+  text = input("Records will appear here.");
 }
 @Component({
   selector: "app-loading",

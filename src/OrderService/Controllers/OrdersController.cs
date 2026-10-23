@@ -13,7 +13,7 @@ public sealed class OrdersController(OrderApplicationService orders) : Controlle
 {
     [HttpPost]
     [EndpointSummary("Create an order for selected products.")]
-    [EndpointDescription("Choose active products and quantities in Swagger. A request key is generated automatically; keep it to retry the same order or recover a Pending result. Choose New order for a separate purchase. OrderService generates the order ID and saves catalogue names, SKUs and prices. Confirmation reserves stock without reducing physical OnHand. A shortage rejects the whole order. A 202 response means the outcome is uncertain; retry the same key and items.")]
+    [EndpointDescription("Choose 1–50 distinct active products with quantities of 1–10,000 in Swagger. A request key is generated automatically; keep it to retry the same order or recover a Pending result. Choose New order for a separate purchase. OrderService generates the order ID and saves catalogue names, SKUs and prices. Confirmation reserves stock without reducing physical OnHand. A shortage rejects the whole order. A 202 response means the outcome is uncertain; retry the same key and items.")]
     [ProducesResponseType<OrderResponse>(201)]
     [ProducesResponseType<OrderResponse>(200)]
     [ProducesResponseType<PendingOrderResponse>(202)]

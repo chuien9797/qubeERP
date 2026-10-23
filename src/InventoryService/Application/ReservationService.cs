@@ -224,7 +224,7 @@ public sealed class ReservationService
         }
 
         var response = ToResponse(reservation);
-        // Released/Consumed are successful original reservations, never shortage outcomes.
+        // Terminal outcomes preserve the original reservation.
         var outcome = response.Status == "Rejected" ? ReservationOutcome.Rejected : ReservationOutcome.Reserved;
         return new ReservationResult(outcome, response, IsReplay: true);
     }

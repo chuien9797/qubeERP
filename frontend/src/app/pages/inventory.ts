@@ -133,11 +133,10 @@ export const guidPattern =
                 ></textarea>
               </label>
               <p class="muted">
-                The backend enforces reservation constraints. This is an
-                absolute count, not a quantity to add.
+                Enter the total physical count, rather than a quantity to add.
               </p>
               <button [disabled]="countForm.invalid || saving() || blocked()">
-                {{ saving() ? "Awaiting backend…" : "Save physical count" }}
+                {{ saving() ? "Saving…" : "Save physical count" }}
               </button>
             </form>
           </section>
@@ -170,7 +169,7 @@ export const guidPattern =
               </label>
               <p class="muted">
                 Retries use the same operation ID and original quantity. Current
-                balances are refreshed after a verified receipt.
+                balances update after a receipt.
               </p>
               <button
                 [disabled]="
@@ -323,8 +322,8 @@ export class Inventory {
       if (r?.state === "verified") {
         this.message.set(
           kind === "receipt"
-            ? "Receipt verified by the backend. The saved receipt contains its historical balance snapshot."
-            : "Physical count verified by the backend.",
+            ? "Stock receipt saved."
+            : "Physical count saved.",
         );
         form.controls.reason.reset("");
         await this.load();

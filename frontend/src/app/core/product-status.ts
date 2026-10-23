@@ -23,7 +23,6 @@ export class ProductStatus {
     } catch (error) {
       if (!unknownOutcome(error))
         return { outcome: "failed", message: errorMessage(error) };
-      // A lost response does not establish failure. Read the authoritative catalogue.
     }
     try {
       const product = await this.api.product(id);
@@ -33,14 +32,14 @@ export class ProductStatus {
           outcome: "verified",
           product,
           message: acknowledged
-            ? `${product.sku} is now ${current}. Current status verified.`
-            : `The request response was unavailable. ${product.sku} is currently ${current}, verified by the backend.`,
+            ? `${product.sku} is now ${current}.`
+            : `The request response was unavailable. ${product.sku} is currently ${current}.`,
         };
       return {
         outcome: acknowledged ? "conflict" : "uncertain",
         product,
         message: acknowledged
-          ? `${product.sku} is currently ${current}. Another status change may have won concurrently. Refresh before changing it again.`
+          ? `${product.sku} is currently ${current}. The status has changed. Refresh before trying again.`
           : `The request outcome is not confirmed. ${product.sku} is currently ${current}; the original request may still complete. Refresh before retrying.`,
       };
     } catch {

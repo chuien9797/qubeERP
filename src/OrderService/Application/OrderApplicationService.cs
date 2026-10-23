@@ -52,7 +52,7 @@ public sealed class OrderApplicationService(
         if (order is null) return new OrderResult(ErrorCode: "ORDER_NOT_FOUND");
         if (order.Status == "Cancelled") return new OrderResult(order);
         if (order.Status != "CancellationPending") return new OrderResult(order, ErrorCode: "ORDER_NOT_CANCELLABLE");
-        // Always send the durably accepted reason, even when this caller lost the claim.
+        // Use the saved cancellation reason.
         var result = await inventory.ReleaseAsync(id, order.CancellationReason!, cancellationToken);
         await ApplyReleaseAsync(id, result, cancellationToken);
         return new OrderResult(await GetAsync(id, cancellationToken),

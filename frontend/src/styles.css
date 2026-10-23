@@ -396,6 +396,51 @@ tr:last-child td {
 tbody tr:hover {
   background: #f5f8ff;
 }
+.navigable-row {
+  position: relative;
+}
+.row-link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  cursor: pointer;
+}
+.navigable-row:has(.row-link:focus-visible) {
+  outline: 2px solid var(--blue);
+  outline-offset: -2px;
+}
+.navigable-row .row-action,
+.navigable-row .product-status-action {
+  position: relative;
+  z-index: 2;
+}
+.product-reference {
+  color: var(--ink);
+  text-decoration: none;
+}
+.badge.good.catalogue-active,
+.product-status-action.is-active {
+  background: #e2f4e8;
+  color: #23633c;
+}
+.badge.catalogue-inactive,
+.product-status-action.is-inactive {
+  background: #edf0f3;
+  color: #505d6b;
+}
+.product-status-action.is-active:hover {
+  background: #cdebd7;
+}
+.product-status-action.is-inactive:hover {
+  background: #dde2e7;
+}
+.product-status-action.is-active,
+.product-status-action.is-inactive {
+  padding: 5px 10px;
+  border-radius: 4px;
+  margin-top: 6px;
+}
 td strong {
   color: var(--ink);
   font-weight: 650;

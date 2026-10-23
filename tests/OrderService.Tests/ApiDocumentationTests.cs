@@ -19,8 +19,21 @@ public sealed class ApiDocumentationTests
         Assert.False(parameter.Required);
         Assert.Equal(new[] { "Pending", "Confirmed", "Rejected", "RequiresReview", "CancellationPending", "Cancelled", "Fulfilled" },
             parameter.Schema!.Enum!.Select(value => value!.GetValue<string>()));
-        Assert.Contains("X-Malaysia-Time", operation.Responses!["200"].Headers!.Keys);
-        Assert.Contains("GMT", operation.Responses["200"].Headers!["X-Malaysia-Time"].Description!);
+        Assert.False(operation.Responses!["200"].Headers?.ContainsKey("X-Malaysia-Time") == true);
+        var create = Assert.Single(document.Paths["/api/orders"].Operations!.Values, value => value.OperationId == "CreateOrder");
+        var uncertain = create.Responses!["202"].Content!["application/json"].Example!;
+        Assert.Equal("Pending", uncertain["status"]!.GetValue<string>());
+        Assert.NotNull(uncertain["statusUrl"]);
+        var invalid = create.Responses["422"].Content!["application/problem+json"].Example!;
+        Assert.Equal("INVALID_PRODUCT", invalid["errorCode"]!.GetValue<string>());
+        Assert.NotEmpty(invalid["invalidProductIds"]!.AsArray());
+        Assert.Null(invalid["orderId"]);
+        var review = create.Responses["502"].Content!["application/problem+json"].Example!;
+        Assert.Equal(502, review["status"]!.GetValue<int>());
+        Assert.Equal("RequiresReview", review["orderStatus"]!.GetValue<string>());
+        var unavailable = create.Responses["503"].Content!["application/problem+json"].Example!;
+        Assert.Equal("PRODUCT_UNAVAILABLE", unavailable["errorCode"]!.GetValue<string>());
+        Assert.Null(unavailable["orderId"]);
         foreach (var path in new[] { "/api/orders/{id}/cancel", "/api/orders/{id}/reconcile-cancellation" })
         {
             var cancel = Assert.Single(document.Paths[path].Operations!.Values);

@@ -13,7 +13,7 @@ public sealed class ProductsController(CatalogueService catalogue, ILogger<Produ
 {
     [HttpPost]
     [EndpointSummary("Create a product.")]
-    [EndpointDescription("Enter a unique SKU, name and nonnegative unit price with at most two decimal places. The product ID is generated automatically. SKUs are trimmed and saved in uppercase. Creating a product does not initialise stock; set its stock count in InventoryService next.")]
+    [EndpointDescription("Enter a required SKU (at most 50 characters), name (at most 200 characters) and nonnegative unit price with at most two decimal places. New products are active. The product ID is generated automatically. SKUs are trimmed and saved in uppercase. Creating a product does not initialise stock; set its stock count in InventoryService next.")]
     [ProducesResponseType<ProductResponse>(StatusCodes.Status201Created)]
     [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
