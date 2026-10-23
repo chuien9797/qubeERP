@@ -93,9 +93,10 @@ import { Recovery } from "../shared/recovery";
               </thead>
               <tbody>
                 @for (o of orders().slice(0, 6); track o.orderId) {
-                  <tr>
+                  <tr class="navigable-row">
                     <td>
-                      <a class="mono" [routerLink]="['/orders', o.orderId]"
+                      <a class="mono row-link" [routerLink]="['/orders', o.orderId]"
+                        [attr.aria-label]="'View order ' + o.orderId"
                         >{{ o.orderId.slice(0, 8) }}…</a
                       >
                     </td>

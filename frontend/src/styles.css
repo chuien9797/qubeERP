@@ -437,9 +437,22 @@ tbody tr:hover {
 }
 .product-status-action.is-active,
 .product-status-action.is-inactive {
-  padding: 5px 10px;
+  padding: 4px 9px;
   border-radius: 4px;
-  margin-top: 6px;
+  margin: 0;
+}
+.product-status-action.is-active .badge,
+.product-status-action.is-inactive .badge {
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  line-height: 18px;
+}
+.product-status-action .status-action-icon {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+  opacity: 0.75;
 }
 td strong {
   color: var(--ink);
@@ -1310,7 +1323,8 @@ footer {
   flex-shrink: 0;
 }
 .product-status-action {
-  display: block;
+  display: inline-flex;
+  gap: 9px;
   font-size: 12px;
   min-height: 28px;
   padding: 5px 0;

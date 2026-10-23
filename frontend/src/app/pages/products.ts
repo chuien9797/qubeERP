@@ -81,24 +81,27 @@ import { ProductStatus } from "../core/product-status";
                       <small class="mono">{{ p.sku }}</small>
                     </td>
                     <td>
-                      <app-badge [value]="p.isActive ? 'Active' : 'Inactive'" />
                       <button
                         class="text-button product-status-action"
                         [class.is-active]="p.isActive"
                         [class.is-inactive]="!p.isActive"
                         [disabled]="statusBusy().includes(p.id)"
+                        [title]="p.isActive ? 'Deactivate product' : 'Reactivate product'"
                         [attr.aria-label]="
                           (p.isActive ? 'Deactivate ' : 'Reactivate ') + p.sku
                         "
                         (click)="changeStatus(p)"
                       >
-                        {{
-                          statusBusy().includes(p.id)
-                            ? "Updating…"
-                            : p.isActive
-                              ? "Deactivate"
-                              : "Reactivate"
-                        }}
+                        @if (statusBusy().includes(p.id)) {
+                          Updating…
+                        } @else {
+                          <app-badge [value]="p.isActive ? 'Active' : 'Inactive'" />
+                          <svg class="status-action-icon" viewBox="0 0 24 24"
+                            fill="none" stroke="currentColor" stroke-width="1.8"
+                            stroke-linecap="round" aria-hidden="true">
+                            <path d="M12 3v9M6.3 5.8a8 8 0 1 0 11.4 0" />
+                          </svg>
+                        }
                       </button>
                     </td>
                     <td class="numeric">
