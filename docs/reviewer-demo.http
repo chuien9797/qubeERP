@@ -15,7 +15,7 @@
 # Run sections sequentially against a new SKU suffix. IDs/keys above must be real GUIDs
 # except the SKU suffix. Copy created IDs into the variables before continuing.
 # This walkthrough writes demo data. Generated docs/openapi contracts and the offline
-# HTML reference are read-only exports; examples there are illustrative, not real IDs.
+# Markdown reference are read-only exports; examples there are illustrative, not real IDs.
 
 ### Create first product (201); copy response id into firstProductId
 POST {{products}}

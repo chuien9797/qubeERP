@@ -12,24 +12,19 @@ $utf8=[Text.UTF8Encoding]::new($false)
 $services=@(@{Key='products';Port=$ProductPort;Count=5},@{Key='inventory';Port=$InventoryPort;Count=7},@{Key='orders';Port=$OrderPort;Count=5})
 $methods=@('get','post','put','patch','delete','head','options')
 $md=[Text.StringBuilder]::new()
-$html=[Text.StringBuilder]::new()
-function Html($v){[Net.WebUtility]::HtmlEncode([string]$v)}
 function MdCell($v){([string]$v).Replace('|','\|').Replace("`r",'').Replace("`n",' ')}
-function Paragraph([string]$v){[void]$md.AppendLine($v+"`n");[void]$html.AppendLine('<p>'+(Html $v)+'</p>')}
+function Paragraph([string]$v){[void]$md.AppendLine($v+"`n")}
 function Heading([int]$level,[string]$v,[string]$anchor){
  if($anchor){[void]$md.AppendLine('<a id="'+$anchor+'"></a>'+"`n")}
  [void]$md.AppendLine(('#'*$level)+' '+$v+"`n")
- [void]$html.AppendLine('<h'+$level+$(if($anchor){' id="'+$anchor+'"'})+'>'+(Html $v)+'</h'+$level+'>')
 }
 function Table($headers,$rows){
  [void]$md.AppendLine('| '+(($headers|ForEach-Object{MdCell $_})-join ' | ')+' |')
  [void]$md.AppendLine('| '+(($headers|ForEach-Object{'---'})-join ' | ')+' |')
- [void]$html.AppendLine('<div class="table"><table><thead><tr>'+(($headers|ForEach-Object{'<th>'+(Html $_)+'</th>'})-join '')+'</tr></thead><tbody>')
  foreach($row in $rows){
   [void]$md.AppendLine('| '+(($row|ForEach-Object{MdCell $_})-join ' | ')+' |')
-  [void]$html.AppendLine('<tr>'+(($row|ForEach-Object{'<td>'+(Html $_)+'</td>'})-join '')+'</tr>')
  }
- [void]$md.AppendLine();[void]$html.AppendLine('</tbody></table></div>')
+ [void]$md.AppendLine()
 }
 function JsonText($value){
  $json=ConvertTo-Json -InputObject $value -Depth 100
@@ -44,7 +39,6 @@ function Example($value,[string]$label){
  Paragraph $label
  $json=JsonText $value
  [void]$md.AppendLine('```json'+"`n"+$json+"`n"+'```'+"`n")
- [void]$html.AppendLine('<pre><code>'+(Html $json)+'</code></pre>')
 }
 function SchemaExample($schema,$document){
  if($null -eq $schema){return $null}
@@ -79,11 +73,9 @@ foreach($service in $services){
  if(-not $document.openapi -or $operations.Count -ne $service.Count){throw "Unexpected $($service.Key) contract; expected $($service.Count) operations."}
  $service.Raw=$raw;$service.Document=$document
 }
-[void]$html.AppendLine('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>QubeErp API reference</title><style>body{max-width:1120px;margin:32px auto;padding:0 24px;color:#172554;background:white;font:15px/1.65 Arial,sans-serif;overflow-wrap:anywhere}h1,h2,h3{line-height:1.3}h2{margin-top:42px;border-bottom:1px solid #cbd5e1;padding-bottom:12px}h3{margin-top:30px}a{color:#174abd}.table{overflow:auto}table{width:100%;border-collapse:collapse;margin:16px 0}th,td{text-align:left;vertical-align:top;padding:10px;border-bottom:1px solid #d9e1ee}th{background:#eff6ff}pre{padding:16px;background:#f8fafc;overflow:auto;white-space:pre-wrap}code{font:13px/1.6 Consolas,monospace}</style></head><body>')
 Heading 1 'QubeErp API reference' ''
 Paragraph 'This reference describes the Product, Inventory and Order APIs, including request formats, responses and error handling. It is based on the exported OpenAPI contracts. Examples are illustrative, not captured command results; use IDs and versions returned by your environment.'
 [void]$md.AppendLine('See [README](../README.md) for setup and architecture, or the [HTTP walkthrough](reviewer-demo.http) for a complete example workflow.'+"`n")
-[void]$html.AppendLine('<p>See <a href="../README.md">README</a> for setup and architecture, or the <a href="reviewer-demo.http">HTTP walkthrough</a> for a complete example workflow.</p>')
 Heading 2 'Calling conventions' 'conventions'
 Paragraph 'Use JSON for command bodies. Preserve the original idempotency key or operation ID and payload on retries. A timed-out write may already have committed. GET endpoints are read-only.'
 Paragraph 'For existing physical stock counts, send expectedVersion from GET inventory. A stale or missing version returns 409 STOCK_VERSION_CONFLICT without changing stock or movements. Refresh and review before submitting a new count; omit the version only when initialising absent stock.'
@@ -101,7 +93,6 @@ foreach($service in $services){
  Heading 2 $document.info.title $service.Key
  Paragraph $document.info.description
  [void]$md.AppendLine('[Live Swagger](http://localhost:'+$service.Port+'/swagger) · [OpenAPI JSON](openapi/'+$service.Key+'.openapi.json)'+"`n")
- [void]$html.AppendLine('<p><a href="http://localhost:'+$service.Port+'/swagger">Live Swagger</a> · <a href="openapi/'+$service.Key+'.openapi.json">OpenAPI JSON</a></p>')
  $rows=[Collections.Generic.List[object]]::new()
  foreach($path in $document.paths.PSObject.Properties){foreach($entry in $path.Value.PSObject.Properties|Where-Object{$_.Name -in $methods}){$rows.Add(@($entry.Name.ToUpperInvariant(),$path.Name,$entry.Value.summary))}}
  Table @('Method','Path','Purpose') $rows
@@ -138,9 +129,7 @@ foreach($service in $services){
   Table @('Field','Type','Required','Description') $rows
  }
 }
-[void]$html.AppendLine('</body></html>')
 New-Item -ItemType Directory -Path $schemas -Force | Out-Null
 foreach($service in $services){[IO.File]::WriteAllText((Join-Path $schemas ($service.Key+'.openapi.json')),$service.Raw,$utf8)}
-[IO.File]::WriteAllText((Join-Path $docs 'api-reference.md'),$md.ToString(),$utf8)
-[IO.File]::WriteAllText((Join-Path $docs 'api-reference.html'),$html.ToString(),$utf8)
-Write-Output 'Exported 17 operations to Markdown, HTML and 3 OpenAPI files. No business data changed.'
+[IO.File]::WriteAllText((Join-Path $docs 'api-reference.md'),($md.ToString().TrimEnd()+"`n"),$utf8)
+Write-Output 'Exported 17 operations to Markdown and 3 OpenAPI files. No business data changed.'
